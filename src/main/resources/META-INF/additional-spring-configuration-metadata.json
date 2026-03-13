@@ -1,0 +1,84 @@
+{
+  "properties": [
+    {
+      "name": "auth.jwt.issuer",
+      "type": "java.lang.String",
+      "description": "JWT issuer claim value."
+    },
+    {
+      "name": "auth.jwt.expiration-seconds",
+      "type": "java.lang.Long",
+      "description": "JWT access token validity duration in seconds."
+    },
+    {
+      "name": "auth.refresh-token.expiration-seconds",
+      "type": "java.lang.Long",
+      "description": "Refresh token validity duration in seconds."
+    },
+    {
+      "name": "auth.jwt.secret",
+      "type": "java.lang.String",
+      "description": "Base64 encoded HMAC secret for signing JWT tokens."
+    },
+    {
+      "name": "app.oauth2.success-redirect-url",
+      "type": "java.lang.String",
+      "description": "Frontend redirect URL for successful Google OAuth2 login."
+    },
+    {
+      "name": "auth.user-profile-cache.ttl-seconds",
+      "type": "java.lang.Long",
+      "description": "User profile cache validity duration in seconds."
+    },
+    {
+      "name": "auth.forgot-password.otp-ttl-seconds",
+      "type": "java.lang.Long",
+      "description": "Forgot-password OTP validity duration in seconds."
+    },
+    {
+      "name": "auth.forgot-password.rate-limit.forgot-max-attempts",
+      "type": "java.lang.Long",
+      "description": "Maximum forgot-password OTP requests allowed in one rate-limit window per email."
+    },
+    {
+      "name": "auth.forgot-password.rate-limit.forgot-window-seconds",
+      "type": "java.lang.Long",
+      "description": "Rate-limit window (seconds) for forgot-password OTP requests."
+    },
+    {
+      "name": "auth.forgot-password.rate-limit.verify-max-attempts",
+      "type": "java.lang.Long",
+      "description": "Maximum OTP verification attempts allowed in one rate-limit window per email."
+    },
+    {
+      "name": "auth.forgot-password.rate-limit.verify-window-seconds",
+      "type": "java.lang.Long",
+      "description": "Rate-limit window (seconds) for OTP verification attempts."
+    },
+    {
+      "name": "auth.forgot-password.rate-limit.resend-max-attempts",
+      "type": "java.lang.Long",
+      "description": "Maximum OTP resend requests allowed in one rate-limit window per email."
+    },
+    {
+      "name": "auth.forgot-password.rate-limit.resend-window-seconds",
+      "type": "java.lang.Long",
+      "description": "Rate-limit window (seconds) for OTP resend requests."
+    },
+    {
+      "name": "auth.notification.exchange",
+      "type": "java.lang.String",
+      "description": "RabbitMQ topic exchange for notification events."
+    },
+    {
+      "name": "auth.notification.email-otp-routing-key",
+      "type": "java.lang.String",
+      "description": "Routing key for forgot-password OTP notification messages."
+    },
+    {
+      "name": "auth.notification.email-queue",
+      "type": "java.lang.String",
+      "description": "Queue name that receives email notification events."
+    }
+  ]
+}
