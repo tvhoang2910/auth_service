@@ -42,10 +42,17 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
         }
 
         User user = authService.upsertGoogleUser(email, fullName);
+        if (!user.isStatus()) {
+            response.sendError(HttpServletResponse.SC_FORBIDDEN, "Account is locked");
+            return;
+        }
         AuthTokenResponse tokenResponse = authService.issueToken(user);
 
         String targetUrl = UriComponentsBuilder.fromUriString(appOauth2Properties.getSuccessRedirectUrl())
                 .queryParam("token", tokenResponse.accessToken())
+                .queryParam("refreshToken", tokenResponse.refreshToken())
+                .queryParam("email", tokenResponse.email())
+                .queryParam("role", tokenResponse.role())
                 .queryParam("tokenType", tokenResponse.tokenType())
                 .queryParam("expiresIn", tokenResponse.expiresIn())
                 .build(true)

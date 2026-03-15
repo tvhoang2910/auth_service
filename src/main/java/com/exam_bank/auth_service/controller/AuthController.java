@@ -6,6 +6,7 @@ import com.exam_bank.auth_service.dto.request.RefreshTokenRequest;
 import com.exam_bank.auth_service.dto.request.ForgotPasswordRequest;
 import com.exam_bank.auth_service.dto.request.VerifyForgotPasswordOtpRequest;
 import com.exam_bank.auth_service.dto.request.ResetPasswordRequest;
+import com.exam_bank.auth_service.dto.request.UpdateMyProfileRequest;
 import com.exam_bank.auth_service.dto.response.AuthTokenResponse;
 import com.exam_bank.auth_service.dto.response.RegisterResponse;
 import com.exam_bank.auth_service.dto.response.ResetPasswordTokenResponse;
@@ -18,6 +19,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -89,6 +91,14 @@ public class AuthController {
     @GetMapping("/me")
     public ResponseEntity<UserProfileResponse> me(Authentication authentication) {
         UserProfileResponse response = authService.getMyProfile(authentication.getName());
+        return ResponseEntity.ok(response);
+    }
+
+    @PatchMapping("/me")
+    public ResponseEntity<UserProfileResponse> updateMe(
+            Authentication authentication,
+            @Valid @RequestBody UpdateMyProfileRequest request) {
+        UserProfileResponse response = authService.updateMyProfile(authentication.getName(), request);
         return ResponseEntity.ok(response);
     }
 }

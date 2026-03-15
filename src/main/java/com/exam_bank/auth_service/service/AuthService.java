@@ -3,6 +3,7 @@ package com.exam_bank.auth_service.service;
 import com.exam_bank.auth_service.dto.request.RegisterRequest;
 import com.exam_bank.auth_service.dto.request.LoginRequest;
 import com.exam_bank.auth_service.dto.request.RefreshTokenRequest;
+import com.exam_bank.auth_service.dto.request.UpdateMyProfileRequest;
 import com.exam_bank.auth_service.dto.message.ForgotPasswordOtpMessage;
 import com.exam_bank.auth_service.dto.response.AuthTokenResponse;
 import com.exam_bank.auth_service.dto.response.RegisterResponse;
@@ -29,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.security.SecureRandom;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.springframework.util.StringUtils.hasText;
@@ -44,6 +46,7 @@ public class AuthService {
     private static final String AUDIT_FORGOT_PASSWORD = "FORGOT_PASSWORD";
     private static final String AUDIT_VERIFY_OTP = "VERIFY_RESET_OTP";
     private static final String AUDIT_RESET_PASSWORD = "RESET_PASSWORD";
+    private static final String AUDIT_UPDATE_PROFILE = "UPDATE_PROFILE";
 
     private static final String RESET_PASSWORD_OTP_KEY_PREFIX = "reset_password:otp:";
     private static final String RESET_PASSWORD_EMAIL_KEY_PREFIX = "reset_password:email:";
@@ -80,9 +83,13 @@ public class AuthService {
         user.setPassword(hasText(request.getPassword()) ? passwordEncoder.encode(request.getPassword()) : null);
         user.setFullName(request.getFullName().trim());
         user.setRole(request.getRole() == null ? Role.USER : request.getRole());
+        user.setAvatarUrl(null);
+        user.setPhoneNumber(null);
+        user.setSchool(null);
+        user.setSubject(null);
 
         User savedUser = userRepository.save(user);
-        evictUserProfileCache(savedUser.getId());
+        evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
         return RegisterResponse.builder()
                 .id(savedUser.getId())
                 .email(savedUser.getEmail())
@@ -100,6 +107,12 @@ public class AuthService {
             throw new BruteForceBlockedException("Too many failed login attempts. Try again in 30 minutes.");
         }
 
+        Optional<User> existingUser = userRepository.findByEmailIgnoreCase(normalizedEmail);
+        if (existingUser.isPresent() && !existingUser.get().isStatus()) {
+            securityAuditService.failure(AUDIT_LOGIN, normalizedEmail, "user-account-locked");
+            throw new BadCredentialsException("Account is locked");
+        }
+
         try {
             authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(normalizedEmail, request.getPassword()));
@@ -109,12 +122,14 @@ public class AuthService {
             throw exception;
         }
 
-        User user = userRepository.findByEmailIgnoreCase(normalizedEmail)
-                .orElseThrow(() -> {
-                    loginAttemptService.recordFailedAttempt(normalizedEmail);
-                    securityAuditService.failure(AUDIT_LOGIN, normalizedEmail, "user-not-found-after-authentication");
-                    return new BadCredentialsException("Invalid credentials");
-                });
+        User user = existingUser
+                .orElseGet(() -> userRepository.findByEmailIgnoreCase(normalizedEmail)
+                        .orElseThrow(() -> {
+                            loginAttemptService.recordFailedAttempt(normalizedEmail);
+                            securityAuditService.failure(AUDIT_LOGIN, normalizedEmail,
+                                    "user-not-found-after-authentication");
+                            return new BadCredentialsException("Invalid credentials");
+                        }));
 
         loginAttemptService.clearAttempts(normalizedEmail);
         securityAuditService.success(AUDIT_LOGIN, normalizedEmail, "token-pair-issued");
@@ -137,7 +152,7 @@ public class AuthService {
                     if (isDuplicatedAdjacentName(existingName)) {
                         existingUser.setFullName(extractFirstHalf(existingName));
                         User savedUser = userRepository.save(existingUser);
-                        evictUserProfileCache(savedUser.getId());
+                        evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
                         return savedUser;
                     }
                     return existingUser;
@@ -148,8 +163,9 @@ public class AuthService {
                     user.setFullName(normalizedGoogleName);
                     user.setRole(Role.USER);
                     user.setPassword(null);
+                    user.setStatus(true);
                     User savedUser = userRepository.save(user);
-                    evictUserProfileCache(savedUser.getId());
+                    evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
                     return savedUser;
                 });
     }
@@ -276,7 +292,7 @@ public class AuthService {
 
         user.setPassword(passwordEncoder.encode(newPassword));
         User savedUser = userRepository.save(user);
-        evictUserProfileCache(savedUser.getId());
+        evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
 
         stringRedisTemplate.delete(resetPasswordTokenKey(normalizedToken));
         stringRedisTemplate.delete(emailOtpKey(email));
@@ -286,6 +302,12 @@ public class AuthService {
     @Transactional(readOnly = true)
     public UserProfileResponse getMyProfile(String email) {
         String normalizedEmail = email.trim().toLowerCase();
+
+        Optional<UserProfileResponse> cachedByEmail = userProfileCacheService.findByEmail(normalizedEmail);
+        if (cachedByEmail.isPresent()) {
+            return cachedByEmail.get();
+        }
+
         User user = userRepository.findByEmailIgnoreCase(normalizedEmail)
                 .orElseThrow(() -> new BadCredentialsException(USER_NOT_FOUND_MESSAGE));
 
@@ -295,6 +317,93 @@ public class AuthService {
                     userProfileCacheService.store(user.getId(), profile);
                     return profile;
                 });
+    }
+
+    @Transactional
+    public UserProfileResponse updateMyProfile(String email, UpdateMyProfileRequest request) {
+        String normalizedEmail = email.trim().toLowerCase();
+        User user = userRepository.findByEmailIgnoreCase(normalizedEmail)
+                .orElseThrow(() -> new BadCredentialsException(USER_NOT_FOUND_MESSAGE));
+
+        String normalizedName = normalizeWhitespace(request.fullName());
+        boolean hasNameChange = hasText(normalizedName);
+        boolean hasAvatarFieldProvided = request.avatarUrl() != null;
+        boolean hasPhoneFieldProvided = request.phoneNumber() != null;
+        boolean hasSchoolFieldProvided = request.school() != null;
+        boolean hasSubjectFieldProvided = request.subject() != null;
+        String normalizedAvatarUrl = normalizeOptionalText(request.avatarUrl());
+        String normalizedPhone = normalizeOptionalText(request.phoneNumber());
+        String normalizedSchool = normalizeOptionalText(request.school());
+        String normalizedSubject = normalizeOptionalText(request.subject());
+        boolean hasCurrentPassword = hasText(request.currentPassword());
+        boolean hasNewPassword = hasText(request.newPassword());
+
+        boolean hasProfileFieldChange = hasAvatarFieldProvided
+                || hasPhoneFieldProvided
+                || hasSchoolFieldProvided
+                || hasSubjectFieldProvided;
+
+        if (!hasNameChange && !hasProfileFieldChange && !hasCurrentPassword && !hasNewPassword) {
+            securityAuditService.failure(AUDIT_UPDATE_PROFILE, normalizedEmail, "empty-update-payload");
+            throw new IllegalArgumentException("At least one profile field or password change is required");
+        }
+
+        if (hasCurrentPassword != hasNewPassword) {
+            securityAuditService.failure(AUDIT_UPDATE_PROFILE, normalizedEmail, "password-fields-incomplete");
+            throw new IllegalArgumentException("Both currentPassword and newPassword are required");
+        }
+
+        if (hasCurrentPassword && !hasText(user.getPassword())) {
+            securityAuditService.failure(AUDIT_UPDATE_PROFILE, normalizedEmail, "oauth-user-no-local-password");
+            throw new IllegalArgumentException("Password update is not available for this account");
+        }
+
+        boolean changed = false;
+        if (hasNameChange && !normalizedName.equals(user.getFullName())) {
+            user.setFullName(normalizedName);
+            changed = true;
+        }
+
+        if (hasAvatarFieldProvided && !equalsNullable(normalizedAvatarUrl, user.getAvatarUrl())) {
+            user.setAvatarUrl(normalizedAvatarUrl);
+            changed = true;
+        }
+
+        if (hasPhoneFieldProvided && !equalsNullable(normalizedPhone, user.getPhoneNumber())) {
+            user.setPhoneNumber(normalizedPhone);
+            changed = true;
+        }
+
+        if (hasSchoolFieldProvided && !equalsNullable(normalizedSchool, user.getSchool())) {
+            user.setSchool(normalizedSchool);
+            changed = true;
+        }
+
+        if (hasSubjectFieldProvided && !equalsNullable(normalizedSubject, user.getSubject())) {
+            user.setSubject(normalizedSubject);
+            changed = true;
+        }
+
+        if (hasCurrentPassword) {
+            if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
+                securityAuditService.failure(AUDIT_UPDATE_PROFILE, normalizedEmail, "current-password-mismatch");
+                throw new BadCredentialsException("Current password is incorrect");
+            }
+
+            user.setPassword(passwordEncoder.encode(request.newPassword()));
+            changed = true;
+        }
+
+        User savedUser = changed ? userRepository.save(user) : user;
+        if (changed) {
+            evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
+        }
+
+        String detail = hasNameChange && hasCurrentPassword
+                ? "full-name-and-password-updated"
+                : hasNameChange ? "full-name-updated" : "password-updated";
+        securityAuditService.success(AUDIT_UPDATE_PROFILE, normalizedEmail, detail);
+        return mapToUserProfile(savedUser);
     }
 
     @Transactional
@@ -347,9 +456,24 @@ public class AuthService {
                 .id(user.getId())
                 .email(user.getEmail())
                 .fullName(user.getFullName())
+                .avatarUrl(user.getAvatarUrl())
+                .phoneNumber(user.getPhoneNumber())
+                .school(user.getSchool())
+                .subject(user.getSubject())
                 .role(user.getRole())
                 .premium(false)
                 .build();
+    }
+
+    private String normalizeOptionalText(String value) {
+        if (!hasText(value)) {
+            return null;
+        }
+        return normalizeWhitespace(value);
+    }
+
+    private boolean equalsNullable(String first, String second) {
+        return java.util.Objects.equals(first, second);
     }
 
     @Transactional(readOnly = true)
@@ -380,6 +504,10 @@ public class AuthService {
 
     public void evictUserProfileCache(Long userId) {
         userProfileCacheService.evict(userId);
+    }
+
+    public void evictUserProfileCache(Long userId, String email) {
+        userProfileCacheService.evict(userId, email);
     }
 
     private String otpKey(String otp) {

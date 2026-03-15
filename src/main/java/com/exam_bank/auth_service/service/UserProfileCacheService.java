@@ -14,20 +14,36 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class UserProfileCacheService {
 
-    private static final String KEY_PREFIX = "user_profile:";
+    private static final String ID_KEY_PREFIX = "user_profile:id:";
+    private static final String EMAIL_KEY_PREFIX = "user_profile:email:";
 
     private final StringRedisTemplate stringRedisTemplate;
     private final AuthUserProfileCacheProperties cacheProperties;
 
     public Optional<UserProfileResponse> find(Long userId) {
-        String value = stringRedisTemplate.opsForValue().get(buildKey(userId));
+        String value = stringRedisTemplate.opsForValue().get(buildIdKey(userId));
         if (value == null || value.isBlank()) {
             return Optional.empty();
         }
 
         UserProfileResponse profile = deserialize(value);
         if (profile == null) {
-            stringRedisTemplate.delete(buildKey(userId));
+            stringRedisTemplate.delete(buildIdKey(userId));
+            return Optional.empty();
+        }
+
+        return Optional.of(profile);
+    }
+
+    public Optional<UserProfileResponse> findByEmail(String email) {
+        String value = stringRedisTemplate.opsForValue().get(buildEmailKey(email));
+        if (value == null || value.isBlank()) {
+            return Optional.empty();
+        }
+
+        UserProfileResponse profile = deserialize(value);
+        if (profile == null) {
+            stringRedisTemplate.delete(buildEmailKey(email));
             return Optional.empty();
         }
 
@@ -37,15 +53,29 @@ public class UserProfileCacheService {
     public void store(Long userId, UserProfileResponse profile) {
         String value = serialize(profile);
         Duration ttl = Duration.ofSeconds(cacheProperties.getTtlSeconds());
-        stringRedisTemplate.opsForValue().set(buildKey(userId), value, ttl);
+        stringRedisTemplate.opsForValue().set(buildIdKey(userId), value, ttl);
+        if (profile.email() != null && !profile.email().isBlank()) {
+            stringRedisTemplate.opsForValue().set(buildEmailKey(profile.email()), value, ttl);
+        }
     }
 
     public void evict(Long userId) {
-        stringRedisTemplate.delete(buildKey(userId));
+        stringRedisTemplate.delete(buildIdKey(userId));
     }
 
-    private String buildKey(Long userId) {
-        return KEY_PREFIX + userId;
+    public void evict(Long userId, String email) {
+        stringRedisTemplate.delete(buildIdKey(userId));
+        if (email != null && !email.isBlank()) {
+            stringRedisTemplate.delete(buildEmailKey(email));
+        }
+    }
+
+    private String buildIdKey(Long userId) {
+        return ID_KEY_PREFIX + userId;
+    }
+
+    private String buildEmailKey(String email) {
+        return EMAIL_KEY_PREFIX + email.trim().toLowerCase();
     }
 
     private String serialize(UserProfileResponse profile) {

@@ -6,6 +6,7 @@ import com.exam_bank.auth_service.dto.message.ForgotPasswordOtpMessage;
 import com.exam_bank.auth_service.dto.request.LoginRequest;
 import com.exam_bank.auth_service.dto.request.RefreshTokenRequest;
 import com.exam_bank.auth_service.dto.request.RegisterRequest;
+import com.exam_bank.auth_service.dto.request.UpdateMyProfileRequest;
 import com.exam_bank.auth_service.dto.response.AuthTokenResponse;
 import com.exam_bank.auth_service.dto.response.RegisterResponse;
 import com.exam_bank.auth_service.dto.response.UserProfileResponse;
@@ -107,6 +108,7 @@ class AuthServiceTest {
         existingUser.setFullName("John Doe");
         existingUser.setRole(Role.USER);
         existingUser.setPassword("encoded-password");
+        existingUser.setStatus(true);
         existingUser.setCreatedAt(Instant.parse("2026-03-13T00:00:00Z"));
     }
 
@@ -196,6 +198,29 @@ class AuthServiceTest {
     }
 
     @Test
+    void login_shouldThrowBadCredentials_whenUserIsBanned() {
+        LoginRequest request = new LoginRequest();
+        request.setEmail("john@example.com");
+        request.setPassword("password123");
+
+        User bannedUser = new User();
+        bannedUser.setId(77L);
+        bannedUser.setEmail("john@example.com");
+        bannedUser.setPassword("encoded-password");
+        bannedUser.setRole(Role.USER);
+        bannedUser.setStatus(false);
+
+        when(loginAttemptService.isBlocked("john@example.com")).thenReturn(false);
+        when(userRepository.findByEmailIgnoreCase("john@example.com")).thenReturn(Optional.of(bannedUser));
+
+        assertThatThrownBy(() -> authService.login(request))
+                .isInstanceOf(BadCredentialsException.class)
+                .hasMessage("Account is locked");
+
+        verify(authenticationManager, never()).authenticate(any());
+    }
+
+    @Test
     void login_shouldThrowBadCredentials_whenUserMissingAfterAuth() {
         LoginRequest request = new LoginRequest();
         request.setEmail("missing@example.com");
@@ -274,17 +299,19 @@ class AuthServiceTest {
                 .premium(false)
                 .build();
 
-        when(userRepository.findByEmailIgnoreCase("john@example.com")).thenReturn(Optional.of(existingUser));
-        when(userProfileCacheService.find(7L)).thenReturn(Optional.of(cachedProfile));
+        when(userProfileCacheService.findByEmail("john@example.com")).thenReturn(Optional.of(cachedProfile));
 
         UserProfileResponse response = authService.getMyProfile("John@Example.com");
 
         assertThat(response).isEqualTo(cachedProfile);
+        verify(userRepository, never()).findByEmailIgnoreCase(any());
+        verify(userProfileCacheService, never()).find(any());
         verify(userProfileCacheService, never()).store(any(), any());
     }
 
     @Test
     void getMyProfile_shouldLoadFromDbAndCache_whenRedisMiss() {
+        when(userProfileCacheService.findByEmail("john@example.com")).thenReturn(Optional.empty());
         when(userRepository.findByEmailIgnoreCase("john@example.com")).thenReturn(Optional.of(existingUser));
         when(userProfileCacheService.find(7L)).thenReturn(Optional.empty());
 
@@ -305,6 +332,7 @@ class AuthServiceTest {
         duplicatedNameUser.setEmail("google@example.com");
         duplicatedNameUser.setFullName("Nguyen Van A Nguyen Van A");
         duplicatedNameUser.setRole(Role.USER);
+        duplicatedNameUser.setStatus(true);
 
         when(userRepository.findByEmailIgnoreCase("google@example.com")).thenReturn(Optional.of(duplicatedNameUser));
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -312,7 +340,7 @@ class AuthServiceTest {
         User savedUser = authService.upsertGoogleUser("google@example.com", "Nguyen Van A");
 
         assertThat(savedUser.getFullName()).isEqualTo("Nguyen Van A");
-        verify(userProfileCacheService).evict(9L);
+        verify(userProfileCacheService).evict(9L, "google@example.com");
     }
 
     @Test
@@ -423,7 +451,7 @@ class AuthServiceTest {
         authService.resetPassword("reset-token-123", "new-password-123");
 
         verify(userRepository).save(argThat(user -> "encoded-new-password".equals(user.getPassword())));
-        verify(userProfileCacheService).evict(7L);
+        verify(userProfileCacheService).evict(7L, "john@example.com");
         verify(stringRedisTemplate).delete("reset_password:token:reset-token-123");
         verify(stringRedisTemplate).delete("reset_password:email:john@example.com");
     }
@@ -439,5 +467,48 @@ class AuthServiceTest {
 
         verify(otpRateLimitService).checkResendAllowed("user@gmail.com");
         verify(valueOperations, times(2)).set(any(String.class), any(String.class), any(Duration.class));
+    }
+
+    @Test
+    void updateMyProfile_shouldUpdateFullNameAndEvictCache() {
+        UpdateMyProfileRequest request = new UpdateMyProfileRequest("  John Wick  ", null, null, null, null, null,
+                null);
+        when(userRepository.findByEmailIgnoreCase("john@example.com")).thenReturn(Optional.of(existingUser));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserProfileResponse response = authService.updateMyProfile("john@example.com", request);
+
+        assertThat(response.fullName()).isEqualTo("John Wick");
+        verify(userRepository).save(argThat(user -> "John Wick".equals(user.getFullName())));
+        verify(userProfileCacheService).evict(7L, "john@example.com");
+    }
+
+    @Test
+    void updateMyProfile_shouldUpdatePassword_whenCurrentPasswordMatches() {
+        UpdateMyProfileRequest request = new UpdateMyProfileRequest(null, null, null, null, null, "old-password-123",
+                "new-password-123");
+        when(userRepository.findByEmailIgnoreCase("john@example.com")).thenReturn(Optional.of(existingUser));
+        when(passwordEncoder.matches("old-password-123", "encoded-password")).thenReturn(true);
+        when(passwordEncoder.encode("new-password-123")).thenReturn("encoded-new-password");
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserProfileResponse response = authService.updateMyProfile("john@example.com", request);
+
+        assertThat(response.email()).isEqualTo("john@example.com");
+        verify(userRepository).save(argThat(user -> "encoded-new-password".equals(user.getPassword())));
+        verify(userProfileCacheService).evict(7L, "john@example.com");
+    }
+
+    @Test
+    void updateMyProfile_shouldThrowIllegalArgument_whenPasswordFieldsIncomplete() {
+        UpdateMyProfileRequest request = new UpdateMyProfileRequest(null, null, null, null, null, null,
+                "new-password-123");
+        when(userRepository.findByEmailIgnoreCase("john@example.com")).thenReturn(Optional.of(existingUser));
+
+        assertThatThrownBy(() -> authService.updateMyProfile("john@example.com", request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Both currentPassword and newPassword are required");
+
+        verify(userRepository, never()).save(any());
     }
 }

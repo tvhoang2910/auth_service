@@ -1,83 +1,107 @@
-# Auth Service (Spring Boot)
+# Auth Service (Exam Bank)
 
-Tai lieu tong hop cho dich vu xac thuc cua he thong Exam Bank.
+Tai lieu nay mo ta nghiep vu va cach van hanh cho dich vu xac thuc tai module auth_service.
 
-## 1. Tong quan
-Auth Service hien tai ho tro:
-- Dang ky va dang nhap bang email/mat khau.
+## 1. Tong quan nghiep vu
+
+Auth Service hien dang phu trach cac nghiep vu sau:
+
+- Dang ky tai khoan bang email/password.
+- Dang nhap bang email/password.
 - Dang nhap Google OAuth2.
-- JWT Access Token + Refresh Token.
-- Logout tuc thi thong qua JWT blacklist tren Redis.
-- API lay thong tin nguoi dung hien tai (/me) co cache Redis.
-- Flow quen mat khau day du:
+- Lam moi phien dang nhap qua refresh token.
+- Dang xuat.
+- Xem thong tin ca nhan hien tai.
+- Cap nhat ho ten va doi mat khau tai khoan hien tai.
+- Quen mat khau bang OTP:
 1. Gui OTP.
 2. Xac thuc OTP.
-3. Dat mat khau moi bang reset token.
-- Rate limit cho cac endpoint forgot-password, verify OTP, resend OTP.
-- Security audit log cho cac su kien dang nhap, refresh, logout, forgot/reset password.
+3. Dat lai mat khau.
+- Quan tri danh sach user cho admin:
+1. Xem danh sach co tim kiem/loc role/phan trang.
+2. Tao user moi.
+3. Doi role user.
+4. Khoa/mo khoa user bang status 0/1.
 
-## 2. Kien truc bao mat va luu tru token
-### 2.1 Access Token + Blacklist
-- Access token duoc ky HS256.
-- Khi logout, token duoc dua vao Redis blacklist den khi het han.
-- Moi request Bearer token di qua JwtBlacklistFilter de chan token da logout.
+## 2. Base URL va endpoint map
 
-Key mau:
-- auth:blacklist:{sha256(access_token)}
+Service context path:
 
-### 2.2 Refresh Token rotate
-- Sau login, he thong cap access token + refresh token.
-- Refresh token duoc luu Redis voi TTL.
-- API /refresh se rotate refresh token:
-1. Thu hoi token cu.
-2. Phat hanh cap token moi.
+- /api/v1/auth
 
-Key mau:
-- auth:refresh:user:{userId} -> refreshToken
-- auth:refresh:value:{sha256(refreshToken)} -> userId
+### 2.1 Public endpoints
 
-### 2.3 Forgot password (OTP + reset token)
-- OTP 6 chu so duoc tao ngau nhien.
-- OTP duoc luu Redis va publish qua RabbitMQ de gui email.
-- Sau verify OTP thanh cong, he thong cap reset token tam thoi (TTL 10 phut).
-- API reset password cap nhat mat khau moi va xoa token tam.
-- Cac hanh dong forgot/verify/resend deu co rate-limit theo email de giam abuse.
+- POST /register
+- POST /login
+- POST /refresh
+- POST /forgot-password
+- POST /forgot-password/resend
+- POST /forgot-password/verify-otp
+- POST /reset-password
+- GET /oauth2/**
+- POST /oauth2/**
 
-### 2.4 Security audit log
-- He thong ghi nhat ky bao mat co cau truc vao log voi format SECURITY_AUDIT.
-- Du lieu chinh: action, outcome (SUCCESS/FAILURE), email, details.
-- Cac action da duoc ghi log:
-1. LOGIN
-2. LOGOUT
-3. REFRESH_TOKEN
-4. FORGOT_PASSWORD
-5. VERIFY_RESET_OTP
-6. RESET_PASSWORD
+### 2.2 Authenticated endpoints
 
-Key mau:
-- reset_password:otp:{otp} -> email (TTL = auth.forgot-password.otp-ttl-seconds)
-- reset_password:email:{email} -> otp (TTL = auth.forgot-password.otp-ttl-seconds)
-- reset_password:token:{resetToken} -> email (TTL = 10 phut)
+- POST /logout
+- GET /me
+- PATCH /me
 
-## 3. Cac endpoint hien co
-Base path: /api/v1/auth
+### 2.3 Admin endpoints
 
-### 3.1 Public endpoints
-1. POST /register
-2. POST /login
-3. POST /refresh
-4. POST /forgot-password
-5. POST /forgot-password/resend
-6. POST /forgot-password/verify-otp
-7. POST /reset-password
-8. GET/POST /oauth2/**
+- GET /admin/users
+- POST /admin/users
+- PUT /admin/users/{id}/status
+- PUT /admin/users/{id}/role
 
-### 3.2 Authenticated endpoints
-1. POST /logout
-2. GET /me
+## 3. Nghiep vu trang thai user (status)
 
-### 3.3 Request/response mau
-Dang ky:
+Quy uoc hien tai:
+
+- status = 1: active (dang hoat dong)
+- status = 0: banned (bi khoa)
+
+Chi tiet API update status:
+
+- Endpoint: PUT /admin/users/{id}/status
+- Payload uu tien dung dang so:
+
+```json
+{
+  "status": 0
+}
+```
+
+Hoac
+
+```json
+{
+  "status": 1
+}
+```
+
+De tuong thich nguoc, API van chap nhan:
+
+```json
+{
+  "active": true
+}
+```
+
+Hoac
+
+```json
+{
+  "active": false
+}
+```
+
+Khi user bi khoa (status = 0), login se bi tu choi ngay.
+
+## 4. Mau request/response nhanh
+
+### 4.1 Dang ky
+
 ```json
 {
   "email": "user@example.com",
@@ -87,7 +111,8 @@ Dang ky:
 }
 ```
 
-Dang nhap:
+### 4.2 Dang nhap
+
 ```json
 {
   "email": "user@example.com",
@@ -95,7 +120,37 @@ Dang nhap:
 }
 ```
 
-Verify OTP:
+### 4.3 Cap nhat profile (/me)
+
+```json
+{
+  "fullName": "Nguyen Van B",
+  "currentPassword": "old-password-123",
+  "newPassword": "new-password-123"
+}
+```
+
+### 4.4 Tao user tu admin
+
+```json
+{
+  "email": "teacher.one@example.com",
+  "fullName": "Teacher One",
+  "password": "strong-pass-123",
+  "role": "CONTRIBUTOR"
+}
+```
+
+### 4.5 Doi role user
+
+```json
+{
+  "role": "ADMIN"
+}
+```
+
+### 4.6 Verify OTP quen mat khau
+
 ```json
 {
   "email": "user@example.com",
@@ -103,7 +158,8 @@ Verify OTP:
 }
 ```
 
-Response verify OTP:
+Response:
+
 ```json
 {
   "resetToken": "generated_reset_token",
@@ -111,124 +167,102 @@ Response verify OTP:
 }
 ```
 
-Reset password:
-```json
-{
-  "resetToken": "generated_reset_token",
-  "newPassword": "new-password-123"
-}
-```
-
-## 4. Cau hinh moi truong
-Tat ca cau hinh nam trong src/main/resources/application.properties.
-
-### 4.1 PostgreSQL
-- DATABASE_URL (default: jdbc:postgresql://localhost:5432/exam_bank_db)
-- DATABASE_USERNAME (default: postgres)
-- DATABASE_PASSWORD
-
-### 4.2 JWT va refresh token
-- JWT_ISSUER (default: auth_service)
-- JWT_EXPIRATION_SECONDS (default: 3600)
-- JWT_SECRET_BASE64
-- REFRESH_TOKEN_EXPIRATION_SECONDS (default: 604800)
-
-### 4.3 Redis
-- REDIS_HOST (default: localhost)
-- REDIS_PORT (default: 6379)
-- REDIS_TIMEOUT (default: 2s)
-- REDIS_CONNECT_TIMEOUT (default: 2s)
-
-### 4.4 Forgot password + RabbitMQ
-- FORGOT_PASSWORD_OTP_TTL_SECONDS (default: 300)
-- FORGOT_PASSWORD_RATE_LIMIT_FORGOT_MAX_ATTEMPTS (default: 5)
-- FORGOT_PASSWORD_RATE_LIMIT_FORGOT_WINDOW_SECONDS (default: 300)
-- FORGOT_PASSWORD_RATE_LIMIT_VERIFY_MAX_ATTEMPTS (default: 10)
-- FORGOT_PASSWORD_RATE_LIMIT_VERIFY_WINDOW_SECONDS (default: 300)
-- FORGOT_PASSWORD_RATE_LIMIT_RESEND_MAX_ATTEMPTS (default: 3)
-- FORGOT_PASSWORD_RATE_LIMIT_RESEND_WINDOW_SECONDS (default: 300)
-- NOTIFICATION_EXCHANGE (default: notification.events)
-- NOTIFICATION_EMAIL_OTP_ROUTING_KEY (default: notification.send.email.otp)
-- NOTIFICATION_EMAIL_QUEUE (default: notification-service.email-queue)
-- RABBITMQ_USERNAME (default: guest)
-- RABBITMQ_PASSWORD (default: guest)
-
-### 4.5 Google OAuth2
-- GOOGLE_CLIENT_ID
-- GOOGLE_CLIENT_SECRET
-- OAUTH2_SUCCESS_REDIRECT_URL (default: http://localhost:5173/oauth2/success)
-
 ## 5. Chay dich vu
-Yeu cau:
-- Java 21+
-- PostgreSQL dang chay
-- Redis dang chay
-- RabbitMQ dang chay neu can gui OTP email qua queue
 
-Lenh chay:
-- Windows: .\mvnw.cmd spring-boot:run
+Yeu cau toi thieu:
+
+- Java 21+
+- PostgreSQL
+- Redis
+- RabbitMQ (de day su kien gui OTP email)
+
+Lenh chay local:
+
+- Windows: .\\mvnw.cmd spring-boot:run
 - Linux/Mac: ./mvnw spring-boot:run
 
-### 5.1 Build va chay bang Docker
-Tai folder auth_service:
+## 6. Build va test
 
-Build image:
-```bash
-docker build -t auth-service:latest .
-```
+Build/test backend:
 
-Run container:
-```bash
-docker run -d --name auth-service -p 8080:8080 \
-  -e DATABASE_URL=jdbc:postgresql://host.docker.internal:5432/exam_bank_db \
-  -e DATABASE_USERNAME=postgres \
-  -e DATABASE_PASSWORD=password_tu_dien_cua_nguoi_ta \
-  -e REDIS_HOST=host.docker.internal \
-  -e RABBITMQ_HOST=host.docker.internal \
-  auth-service:latest
-```
+- .\\mvnw.cmd test
 
-Luu y:
-1. Bien dung la DATABASE_USERNAME (khong co khoang trang).
-2. Dockerfile da co HEALTHCHECK qua endpoint /api/v1/auth/actuator/health.
+Ket qua gan day:
 
-## 6. Kiem thu
-Backend:
-- Lenh: .\mvnw.cmd test
-- Ket qua gan nhat: BUILD SUCCESS
-- Tests run: 21, Failures: 0, Errors: 0, Skipped: 0
-- Test classes:
-1. AuthServiceApplicationTests
-2. JwtBlacklistFilterTest
-3. AuthServiceTest
+- BUILD SUCCESS
+- 30 tests passed
 
-Frontend lien quan auth flow (tai repo exam-web):
-- Lenh: npx playwright test --quiet
-- Ket qua gan nhat: 6 passed
+Frontend lien quan auth/admin (exam-web):
 
-## 7. Tich hop frontend flow quen mat khau
-Frontend da su dung chuoi man hinh:
-1. /forgot-password
-2. /forgot-password/verify
-3. /reset-password
+- npm run build
+- npx playwright test tests/app.spec.ts
 
-Flow:
-1. Nguoi dung nhap email va gui OTP.
-2. Nguoi dung nhap OTP hoac resend OTP.
-3. Verify thanh cong -> nhan resetToken.
-4. Nguoi dung dat mat khau moi bang resetToken.
+## 7. Cac bien moi truong quan trong
 
-## 8. Auth service nen lam gi tiep theo
-De dua production-ready, nen uu tien:
+Cac bien duoc map trong src/main/resources/application.properties:
 
-1. Hash OTP truoc khi luu Redis (khong luu OTP plain text).
-2. Them endpoint reset password co revoke toan bo refresh token hien tai cua user (tat ca session).
-3. Chuan hoa error code/business code de FE xu ly theo ma thay vi message text.
-4. Them integration test cho Redis va RabbitMQ bang Testcontainers.
-5. Bo secrets mac dinh trong application.properties (jwt secret, DB password, OAuth secret) o moi truong that.
-6. Hoan thien tai lieu OpenAPI/Swagger cho toan bo endpoint.
+- DATABASE_URL
+- DATABASE_USERNAME
+- DATABASE_PASSWORD
+- JWT_ISSUER
+- JWT_EXPIRATION_SECONDS
+- JWT_SECRET_BASE64
+- REFRESH_TOKEN_EXPIRATION_SECONDS
+- REDIS_HOST
+- REDIS_PORT
+- RABBITMQ_HOST
+- RABBITMQ_PORT
+- RABBITMQ_USERNAME
+- RABBITMQ_PASSWORD
+- GOOGLE_CLIENT_ID
+- GOOGLE_CLIENT_SECRET
+- OAUTH2_SUCCESS_REDIRECT_URL
 
-## 9. Ghi chu trien khai
-- Khong hard-code secret o production.
-- Redis nen bat auth va gioi han network.
-- RabbitMQ nen tao user rieng cho app, khong dung tai khoan guest cho moi truong deploy.
+## 8. De xuat mo rong nghiep vu (khong tap trung hieu nang/bao mat)
+
+Duoi day la cac chuc nang nen uu tien neu tiep tuc phat trien Auth Service theo nghiep vu Exam Bank:
+
+1. Account lifecycle day du
+- Bo sung trang thai nghiep vu: PENDING_ACTIVATION, ACTIVE, SUSPENDED, DELETED.
+- Co ly do khoa mo tai khoan va nguoi thuc hien thao tac.
+
+2. User onboarding workflow
+- Kich hoat tai khoan qua email xac minh.
+- Ho tro moi user vao he thong theo invite link (danh cho giao vien/contributor).
+
+3. Quan ly ho so nghiep vu
+- Mo rong profile: avatar, so dien thoai, don vi truong, bo mon.
+- Cho phep cap nhat preference (ngon ngu, mui gio, thong bao).
+
+4. Phan quyen theo mo hinh nghiep vu
+- Role template theo doi tuong su dung (Student, Teacher, Content Reviewer, Admin).
+- Gan role theo quy trinh phe duyet thay vi gan truc tiep ngay lap tuc.
+
+5. Quan ly to chuc/tenant
+- Ho tro user thuoc nhieu truong/organization.
+- Role co pham vi theo tung organization.
+
+6. Lich su thay doi tai khoan cho van hanh nghiep vu
+- Theo doi lich su doi role, khoa/mo khoa, doi ten.
+- Co API de backoffice truy vet bien dong user.
+
+7. Batch operation cho admin
+- Import user hang loat bang CSV.
+- Cap nhat role/trang thai hang loat theo bo loc.
+
+8. Rule nghiep vu theo goi dich vu
+- Gan entitlement theo plan (free/premium/school plan).
+- API tra ve quyen su dung tinh nang de FE dieu huong UI.
+
+9. Dong bo voi module khac
+- Phat su kien domain khi user thay doi role/status de Exam/Notification cap nhat.
+- Vi du: USER_STATUS_CHANGED, USER_ROLE_CHANGED.
+
+10. Self-service tai khoan
+- Endpoint user tu khoa mo thong bao email/app.
+- Endpoint user xoa tai khoan (soft delete) theo chinh sach san pham.
+
+## 9. Ghi chu cho team
+
+- README nay tap trung vao nghiep vu va contract API.
+- Cac van de hardening bao mat/hieu nang co the duoc tach thanh tai lieu rieng de theo doi ky thuat.

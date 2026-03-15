@@ -79,6 +79,11 @@
       "name": "auth.notification.email-queue",
       "type": "java.lang.String",
       "description": "Queue name that receives email notification events."
+    },
+    {
+      "name": "auth.notification.email-account-locked-routing-key",
+      "type": "java.lang.String",
+      "description": "A description for 'auth.notification.email-account-locked-routing-key'"
     }
   ]
 }

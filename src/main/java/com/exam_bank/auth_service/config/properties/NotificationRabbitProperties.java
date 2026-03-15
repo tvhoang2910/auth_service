@@ -19,5 +19,11 @@ public class NotificationRabbitProperties {
     private String emailOtpRoutingKey;
 
     @NotBlank
+    private String emailAccountLockedRoutingKey;
+
+    @NotBlank
+    private String emailAccountUnlockedRoutingKey;
+
+    @NotBlank
     private String emailQueue;
 }
