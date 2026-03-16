@@ -65,7 +65,8 @@ class AdminUserServiceTest {
                 user.setCreatedAt(Instant.parse("2026-03-15T00:00:00Z"));
 
                 PageRequest pageable = PageRequest.of(0, 10);
-                when(userRepository.findAll(any(Specification.class), org.mockito.ArgumentMatchers.eq(pageable)))
+                when(userRepository.findAll(org.mockito.ArgumentMatchers.<Specification<User>>any(),
+                                org.mockito.ArgumentMatchers.eq(pageable)))
                                 .thenReturn(new PageImpl<>(List.of(user), pageable, 1));
 
                 Page<AdminUserItemResponse> result = adminUserService.getUsers(" Teacher ", Role.CONTRIBUTOR, pageable);
@@ -144,7 +145,7 @@ class AdminUserServiceTest {
                                 "admin@example.com");
 
                 assertThat(response.status()).isFalse();
-                assertThat(response.statusCode()).isEqualTo(0);
+                assertThat(response.statusCode()).isZero();
                 assertThat(response.statusReason()).isEqualTo("Violate policy");
                 assertThat(response.statusChangedBy()).isEqualTo("admin@example.com");
                 verify(rabbitTemplate).convertAndSend(eq("notification.events"),

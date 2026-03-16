@@ -27,6 +27,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Duration;
 import java.security.SecureRandom;
@@ -47,6 +48,7 @@ public class AuthService {
     private static final String AUDIT_VERIFY_OTP = "VERIFY_RESET_OTP";
     private static final String AUDIT_RESET_PASSWORD = "RESET_PASSWORD";
     private static final String AUDIT_UPDATE_PROFILE = "UPDATE_PROFILE";
+    private static final String AUDIT_UPLOAD_AVATAR = "UPLOAD_AVATAR";
 
     private static final String RESET_PASSWORD_OTP_KEY_PREFIX = "reset_password:otp:";
     private static final String RESET_PASSWORD_EMAIL_KEY_PREFIX = "reset_password:email:";
@@ -68,6 +70,7 @@ public class AuthService {
     private final NotificationRabbitProperties notificationRabbitProperties;
     private final OtpRateLimitService otpRateLimitService;
     private final SecurityAuditService securityAuditService;
+    private final AvatarStorageService avatarStorageService;
 
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -119,6 +122,7 @@ public class AuthService {
         } catch (BadCredentialsException exception) {
             loginAttemptService.recordFailedAttempt(normalizedEmail);
             securityAuditService.failure(AUDIT_LOGIN, normalizedEmail, "invalid-credentials");
+
             throw exception;
         }
 
@@ -325,6 +329,23 @@ public class AuthService {
         User user = userRepository.findByEmailIgnoreCase(normalizedEmail)
                 .orElseThrow(() -> new BadCredentialsException(USER_NOT_FOUND_MESSAGE));
 
+        ProfileUpdateContext updateContext = buildProfileUpdateContext(request);
+        validateProfileUpdateRequest(user, normalizedEmail, updateContext);
+
+        boolean changed = applyProfileFieldUpdates(user, updateContext);
+        changed = applyPasswordUpdateIfNeeded(user, request, normalizedEmail, updateContext, changed);
+
+        User savedUser = changed ? userRepository.save(user) : user;
+        if (changed) {
+            evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
+        }
+
+        String detail = determineProfileAuditDetail(updateContext.hasNameChange(), updateContext.hasCurrentPassword());
+        securityAuditService.success(AUDIT_UPDATE_PROFILE, normalizedEmail, detail);
+        return mapToUserProfile(savedUser);
+    }
+
+    private ProfileUpdateContext buildProfileUpdateContext(UpdateMyProfileRequest request) {
         String normalizedName = normalizeWhitespace(request.fullName());
         boolean hasNameChange = hasText(normalizedName);
         boolean hasAvatarFieldProvided = request.avatarUrl() != null;
@@ -337,72 +358,143 @@ public class AuthService {
         String normalizedSubject = normalizeOptionalText(request.subject());
         boolean hasCurrentPassword = hasText(request.currentPassword());
         boolean hasNewPassword = hasText(request.newPassword());
-
         boolean hasProfileFieldChange = hasAvatarFieldProvided
                 || hasPhoneFieldProvided
                 || hasSchoolFieldProvided
                 || hasSubjectFieldProvided;
 
-        if (!hasNameChange && !hasProfileFieldChange && !hasCurrentPassword && !hasNewPassword) {
+        return new ProfileUpdateContext(
+                normalizedName,
+                hasNameChange,
+                hasAvatarFieldProvided,
+                hasPhoneFieldProvided,
+                hasSchoolFieldProvided,
+                hasSubjectFieldProvided,
+                normalizedAvatarUrl,
+                normalizedPhone,
+                normalizedSchool,
+                normalizedSubject,
+                hasCurrentPassword,
+                hasNewPassword,
+                hasProfileFieldChange);
+    }
+
+    private void validateProfileUpdateRequest(
+            User user,
+            String normalizedEmail,
+            ProfileUpdateContext updateContext) {
+        if (!updateContext.hasNameChange()
+                && !updateContext.hasProfileFieldChange()
+                && !updateContext.hasCurrentPassword()
+                && !updateContext.hasNewPassword()) {
             securityAuditService.failure(AUDIT_UPDATE_PROFILE, normalizedEmail, "empty-update-payload");
             throw new IllegalArgumentException("At least one profile field or password change is required");
         }
 
-        if (hasCurrentPassword != hasNewPassword) {
+        if (updateContext.hasCurrentPassword() != updateContext.hasNewPassword()) {
             securityAuditService.failure(AUDIT_UPDATE_PROFILE, normalizedEmail, "password-fields-incomplete");
             throw new IllegalArgumentException("Both currentPassword and newPassword are required");
         }
 
-        if (hasCurrentPassword && !hasText(user.getPassword())) {
+        if (updateContext.hasCurrentPassword() && !hasText(user.getPassword())) {
             securityAuditService.failure(AUDIT_UPDATE_PROFILE, normalizedEmail, "oauth-user-no-local-password");
             throw new IllegalArgumentException("Password update is not available for this account");
         }
 
+    }
+
+    private boolean applyProfileFieldUpdates(User user, ProfileUpdateContext updateContext) {
         boolean changed = false;
-        if (hasNameChange && !normalizedName.equals(user.getFullName())) {
-            user.setFullName(normalizedName);
+
+        if (updateContext.hasNameChange() && !updateContext.normalizedName().equals(user.getFullName())) {
+            user.setFullName(updateContext.normalizedName());
             changed = true;
         }
 
-        if (hasAvatarFieldProvided && !equalsNullable(normalizedAvatarUrl, user.getAvatarUrl())) {
-            user.setAvatarUrl(normalizedAvatarUrl);
+        if (updateContext.hasAvatarFieldProvided()
+                && !equalsNullable(updateContext.normalizedAvatarUrl(), user.getAvatarUrl())) {
+            user.setAvatarUrl(updateContext.normalizedAvatarUrl());
             changed = true;
         }
 
-        if (hasPhoneFieldProvided && !equalsNullable(normalizedPhone, user.getPhoneNumber())) {
-            user.setPhoneNumber(normalizedPhone);
+        if (updateContext.hasPhoneFieldProvided()
+                && !equalsNullable(updateContext.normalizedPhone(), user.getPhoneNumber())) {
+            user.setPhoneNumber(updateContext.normalizedPhone());
             changed = true;
         }
 
-        if (hasSchoolFieldProvided && !equalsNullable(normalizedSchool, user.getSchool())) {
-            user.setSchool(normalizedSchool);
+        if (updateContext.hasSchoolFieldProvided()
+                && !equalsNullable(updateContext.normalizedSchool(), user.getSchool())) {
+            user.setSchool(updateContext.normalizedSchool());
             changed = true;
         }
 
-        if (hasSubjectFieldProvided && !equalsNullable(normalizedSubject, user.getSubject())) {
-            user.setSubject(normalizedSubject);
+        if (updateContext.hasSubjectFieldProvided()
+                && !equalsNullable(updateContext.normalizedSubject(), user.getSubject())) {
+            user.setSubject(updateContext.normalizedSubject());
             changed = true;
         }
 
-        if (hasCurrentPassword) {
-            if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
-                securityAuditService.failure(AUDIT_UPDATE_PROFILE, normalizedEmail, "current-password-mismatch");
-                throw new BadCredentialsException("Current password is incorrect");
-            }
+        return changed;
+    }
 
-            user.setPassword(passwordEncoder.encode(request.newPassword()));
-            changed = true;
+    private boolean applyPasswordUpdateIfNeeded(
+            User user,
+            UpdateMyProfileRequest request,
+            String normalizedEmail,
+            ProfileUpdateContext updateContext,
+            boolean changed) {
+        if (!updateContext.hasCurrentPassword()) {
+            return changed;
         }
 
-        User savedUser = changed ? userRepository.save(user) : user;
-        if (changed) {
-            evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
+        if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
+            securityAuditService.failure(AUDIT_UPDATE_PROFILE, normalizedEmail, "current-password-mismatch");
+            throw new BadCredentialsException("Current password is incorrect");
         }
 
-        String detail = hasNameChange && hasCurrentPassword
-                ? "full-name-and-password-updated"
-                : hasNameChange ? "full-name-updated" : "password-updated";
-        securityAuditService.success(AUDIT_UPDATE_PROFILE, normalizedEmail, detail);
+        user.setPassword(passwordEncoder.encode(request.newPassword()));
+        return true;
+    }
+
+    private String determineProfileAuditDetail(boolean hasNameChange, boolean hasPasswordChange) {
+        if (hasNameChange && hasPasswordChange) {
+            return "full-name-and-password-updated";
+        }
+        if (hasNameChange) {
+            return "full-name-updated";
+        }
+        return "password-updated";
+    }
+
+    private record ProfileUpdateContext(
+            String normalizedName,
+            boolean hasNameChange,
+            boolean hasAvatarFieldProvided,
+            boolean hasPhoneFieldProvided,
+            boolean hasSchoolFieldProvided,
+            boolean hasSubjectFieldProvided,
+            String normalizedAvatarUrl,
+            String normalizedPhone,
+            String normalizedSchool,
+            String normalizedSubject,
+            boolean hasCurrentPassword,
+            boolean hasNewPassword,
+            boolean hasProfileFieldChange) {
+    }
+
+    @Transactional
+    public UserProfileResponse uploadMyAvatar(String email, MultipartFile file) {
+        String normalizedEmail = email.trim().toLowerCase();
+        User user = userRepository.findByEmailIgnoreCase(normalizedEmail)
+                .orElseThrow(() -> new BadCredentialsException(USER_NOT_FOUND_MESSAGE));
+
+        String avatarUrl = avatarStorageService.uploadAvatar(user.getId(), file);
+        user.setAvatarUrl(avatarUrl);
+
+        User savedUser = userRepository.save(user);
+        evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
+        securityAuditService.success(AUDIT_UPLOAD_AVATAR, normalizedEmail, "avatar-uploaded");
         return mapToUserProfile(savedUser);
     }
 

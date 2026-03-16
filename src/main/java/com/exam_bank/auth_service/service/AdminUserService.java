@@ -159,13 +159,10 @@ public class AdminUserService {
             if (userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
                 if (skipExisting) {
                     skipped++;
-                    errors.add(
-                            new AdminImportUserErrorResponse(index, normalizedEmail, "Email already exists (skipped)"));
-                    continue;
+                } else {
+                    failed++;
                 }
-
-                failed++;
-                errors.add(new AdminImportUserErrorResponse(index, normalizedEmail, "Email already exists"));
+                errors.add(buildDuplicateEmailError(index, normalizedEmail, skipExisting));
                 continue;
             }
 
@@ -189,6 +186,11 @@ public class AdminUserService {
         }
 
         return new AdminImportUsersResponse(items.size(), created, skipped, failed, errors);
+    }
+
+    private AdminImportUserErrorResponse buildDuplicateEmailError(int index, String email, boolean skipExisting) {
+        String reason = skipExisting ? "Email already exists (skipped)" : "Email already exists";
+        return new AdminImportUserErrorResponse(index, email, reason);
     }
 
     private boolean resolveActiveStatus(AdminUpdateUserStatusRequest request) {

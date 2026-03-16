@@ -14,8 +14,8 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class UserProfileCacheService {
 
-    private static final String ID_KEY_PREFIX = "user_profile:id:";
-    private static final String EMAIL_KEY_PREFIX = "user_profile:email:";
+    private static final String ID_KEY_PREFIX = "user_profile:v2:id:";
+    private static final String EMAIL_KEY_PREFIX = "user_profile:v2:email:";
 
     private final StringRedisTemplate stringRedisTemplate;
     private final AuthUserProfileCacheProperties cacheProperties;
@@ -79,35 +79,59 @@ public class UserProfileCacheService {
     }
 
     private String serialize(UserProfileResponse profile) {
-        String fullName = profile.fullName().replace("\\", "\\\\").replace("\"", "\\\"");
         String role = profile.role() == null ? Role.USER.name() : profile.role().name();
 
-        return "{\"id\":" + profile.id()
-                + ",\"email\":\"" + profile.email() + "\""
-                + ",\"fullName\":\"" + fullName + "\""
-                + ",\"role\":\"" + role + "\""
-                + ",\"premium\":" + profile.premium()
-                + "}";
+        return "{" +
+                "\"id\":" + profile.id() +
+                ",\"email\":" + quoteNullable(profile.email()) +
+                ",\"fullName\":" + quoteNullable(profile.fullName()) +
+                ",\"avatarUrl\":" + quoteNullable(profile.avatarUrl()) +
+                ",\"phoneNumber\":" + quoteNullable(profile.phoneNumber()) +
+                ",\"school\":" + quoteNullable(profile.school()) +
+                ",\"subject\":" + quoteNullable(profile.subject()) +
+                ",\"role\":" + quoteNullable(role) +
+                ",\"premium\":" + profile.premium() +
+                "}";
     }
 
     private UserProfileResponse deserialize(String value) {
         try {
             Long id = Long.parseLong(extractRaw(value, "id"));
-            String email = extractString(value, "email");
-            String fullName = extractString(value, "fullName");
-            String roleValue = extractString(value, "role");
+            String email = extractNullableString(value, "email");
+            String fullName = extractNullableString(value, "fullName");
+            String avatarUrl = extractNullableString(value, "avatarUrl");
+            String phoneNumber = extractNullableString(value, "phoneNumber");
+            String school = extractNullableString(value, "school");
+            String subject = extractNullableString(value, "subject");
+            String roleValue = extractNullableString(value, "role");
             boolean premium = Boolean.parseBoolean(extractRaw(value, "premium"));
 
             return UserProfileResponse.builder()
                     .id(id)
                     .email(email)
                     .fullName(fullName)
-                    .role(Role.valueOf(roleValue))
+                    .avatarUrl(avatarUrl)
+                    .phoneNumber(phoneNumber)
+                    .school(school)
+                    .subject(subject)
+                    .role(hasText(roleValue) ? Role.valueOf(roleValue) : Role.USER)
                     .premium(premium)
                     .build();
         } catch (Exception exception) {
             return null;
         }
+    }
+
+    private String quoteNullable(String value) {
+        if (value == null) {
+            return "null";
+        }
+
+        return "\"" + escape(value) + "\"";
+    }
+
+    private String escape(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private String extractRaw(String json, String key) {
@@ -126,8 +150,11 @@ public class UserProfileCacheService {
         return json.substring(start, end).trim();
     }
 
-    private String extractString(String json, String key) {
+    private String extractNullableString(String json, String key) {
         String raw = extractRaw(json, key);
+        if ("null".equals(raw)) {
+            return null;
+        }
         if (!raw.startsWith("\"") || !raw.endsWith("\"")) {
             throw new IllegalArgumentException("Invalid string value for key: " + key);
         }
@@ -135,5 +162,9 @@ public class UserProfileCacheService {
         return raw.substring(1, raw.length() - 1)
                 .replace("\\\"", "\"")
                 .replace("\\\\", "\\");
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }

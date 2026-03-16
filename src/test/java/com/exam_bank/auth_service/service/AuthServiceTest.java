@@ -31,6 +31,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.mock.web.MockMultipartFile;
 
 import java.time.Instant;
 import java.time.Duration;
@@ -91,6 +92,9 @@ class AuthServiceTest {
 
     @Mock
     private SecurityAuditService securityAuditService;
+
+    @Mock
+    private AvatarStorageService avatarStorageService;
 
     @Mock
     private ValueOperations<String, String> valueOperations;
@@ -510,5 +514,27 @@ class AuthServiceTest {
                 .hasMessage("Both currentPassword and newPassword are required");
 
         verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void uploadMyAvatar_shouldUploadToStorageAndUpdateProfile() {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "avatar.png",
+                "image/png",
+                "sample-image-content".getBytes());
+
+        when(userRepository.findByEmailIgnoreCase("john@example.com")).thenReturn(Optional.of(existingUser));
+        when(avatarStorageService.uploadAvatar(7L, file))
+                .thenReturn("http://localhost:9000/users/avatars/user-7/avatar.png");
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserProfileResponse response = authService.uploadMyAvatar("john@example.com", file);
+
+        assertThat(response.avatarUrl()).isEqualTo("http://localhost:9000/users/avatars/user-7/avatar.png");
+        verify(avatarStorageService).uploadAvatar(7L, file);
+        verify(userRepository).save(
+                argThat(user -> "http://localhost:9000/users/avatars/user-7/avatar.png".equals(user.getAvatarUrl())));
+        verify(userProfileCacheService).evict(7L, "john@example.com");
     }
 }
