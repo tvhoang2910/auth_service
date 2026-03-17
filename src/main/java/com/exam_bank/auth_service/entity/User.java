@@ -43,6 +43,9 @@ public class User extends BaseEntity {
     @Column(name = "status", nullable = false, columnDefinition = "boolean default true")
     private boolean status = true;
 
+    @Column(name = "email_verified", nullable = false, columnDefinition = "boolean default false")
+    private boolean emailVerified = false;
+
     @Size(max = 500)
     @Column(name = "avatar_url", length = 500)
     private String avatarUrl;

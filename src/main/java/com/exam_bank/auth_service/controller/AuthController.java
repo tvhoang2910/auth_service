@@ -5,6 +5,7 @@ import com.exam_bank.auth_service.dto.request.LoginRequest;
 import com.exam_bank.auth_service.dto.request.RefreshTokenRequest;
 import com.exam_bank.auth_service.dto.request.ForgotPasswordRequest;
 import com.exam_bank.auth_service.dto.request.VerifyForgotPasswordOtpRequest;
+import com.exam_bank.auth_service.dto.request.VerifyEmailOtpRequest;
 import com.exam_bank.auth_service.dto.request.ResetPasswordRequest;
 import com.exam_bank.auth_service.dto.request.UpdateMyProfileRequest;
 import com.exam_bank.auth_service.dto.response.AuthTokenResponse;
@@ -44,6 +45,20 @@ public class AuthController {
     public ResponseEntity<RegisterResponse> register(@Valid @RequestBody RegisterRequest request) {
         RegisterResponse response = authService.register(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/register/resend-verification")
+    public ResponseEntity<Map<String, String>> resendRegisterVerification(
+            @Valid @RequestBody ForgotPasswordRequest request) {
+        authService.resendRegisterVerificationOtp(request.email());
+        return ResponseEntity.ok(Map.of(MESSAGE_KEY, "Verification OTP has been resent if account exists"));
+    }
+
+    @PostMapping("/register/verify-email")
+    public ResponseEntity<Map<String, String>> verifyRegisterEmail(
+            @Valid @RequestBody VerifyEmailOtpRequest request) {
+        authService.verifyRegisterEmailOtp(request.email(), request.otp());
+        return ResponseEntity.ok(Map.of(MESSAGE_KEY, "Email verified successfully"));
     }
 
     @PostMapping("/login")

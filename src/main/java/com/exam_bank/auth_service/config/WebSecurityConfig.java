@@ -71,6 +71,8 @@ public class WebSecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/register",
+                                "/register/resend-verification",
+                                "/register/verify-email",
                                 "/login",
                                 "/forgot-password",
                                 "/forgot-password/resend",

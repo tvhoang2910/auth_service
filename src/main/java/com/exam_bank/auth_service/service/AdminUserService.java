@@ -94,6 +94,7 @@ public class AdminUserService {
         user.setPassword(passwordEncoder.encode(request.password()));
         user.setRole(request.role() == null ? Role.CONTRIBUTOR : request.role());
         user.setStatus(true);
+        user.setEmailVerified(true);
         user.setAvatarUrl(null);
         user.setPhoneNumber(null);
         user.setSchool(null);
@@ -173,6 +174,7 @@ public class AdminUserService {
                 user.setPassword(passwordEncoder.encode(item.password()));
                 user.setRole(item.role() == null ? Role.CONTRIBUTOR : item.role());
                 user.setStatus(true);
+                user.setEmailVerified(true);
                 user.setAvatarUrl(normalizeOptionalText(item.avatarUrl()));
                 user.setPhoneNumber(normalizeOptionalText(item.phoneNumber()));
                 user.setSchool(normalizeOptionalText(item.school()));

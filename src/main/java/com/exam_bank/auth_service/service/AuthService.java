@@ -4,10 +4,11 @@ import com.exam_bank.auth_service.dto.request.RegisterRequest;
 import com.exam_bank.auth_service.dto.request.LoginRequest;
 import com.exam_bank.auth_service.dto.request.RefreshTokenRequest;
 import com.exam_bank.auth_service.dto.request.UpdateMyProfileRequest;
-import com.exam_bank.auth_service.dto.message.ForgotPasswordOtpMessage;
+import com.exam_bank.auth_service.dto.message.EmailOtpMessage;
 import com.exam_bank.auth_service.dto.response.AuthTokenResponse;
 import com.exam_bank.auth_service.dto.response.RegisterResponse;
 import com.exam_bank.auth_service.dto.response.UserProfileResponse;
+import com.exam_bank.auth_service.config.properties.AuthEmailVerificationProperties;
 import com.exam_bank.auth_service.config.properties.AuthForgotPasswordProperties;
 import com.exam_bank.auth_service.config.properties.NotificationRabbitProperties;
 import com.exam_bank.auth_service.entity.Role;
@@ -46,6 +47,7 @@ public class AuthService {
     private static final String AUDIT_REFRESH = "REFRESH_TOKEN";
     private static final String AUDIT_FORGOT_PASSWORD = "FORGOT_PASSWORD";
     private static final String AUDIT_VERIFY_OTP = "VERIFY_RESET_OTP";
+    private static final String AUDIT_EMAIL_VERIFICATION = "VERIFY_REGISTER_EMAIL";
     private static final String AUDIT_RESET_PASSWORD = "RESET_PASSWORD";
     private static final String AUDIT_UPDATE_PROFILE = "UPDATE_PROFILE";
     private static final String AUDIT_UPLOAD_AVATAR = "UPLOAD_AVATAR";
@@ -53,7 +55,11 @@ public class AuthService {
     private static final String RESET_PASSWORD_OTP_KEY_PREFIX = "reset_password:otp:";
     private static final String RESET_PASSWORD_EMAIL_KEY_PREFIX = "reset_password:email:";
     private static final String RESET_PASSWORD_TOKEN_KEY_PREFIX = "reset_password:token:";
+    private static final String REGISTER_EMAIL_VERIFICATION_OTP_KEY_PREFIX = "register_verify:otp:";
+    private static final String REGISTER_EMAIL_VERIFICATION_EMAIL_KEY_PREFIX = "register_verify:email:";
     private static final Duration RESET_PASSWORD_TOKEN_TTL = Duration.ofMinutes(10);
+    private static final String OTP_PURPOSE_FORGOT_PASSWORD = "FORGOT_PASSWORD";
+    private static final String OTP_PURPOSE_EMAIL_VERIFICATION = "EMAIL_VERIFICATION";
     private static final String USER_NOT_FOUND_MESSAGE = "User not found";
 
     private final UserRepository userRepository;
@@ -67,6 +73,7 @@ public class AuthService {
     private final StringRedisTemplate stringRedisTemplate;
     private final RabbitTemplate rabbitTemplate;
     private final AuthForgotPasswordProperties forgotPasswordProperties;
+    private final AuthEmailVerificationProperties emailVerificationProperties;
     private final NotificationRabbitProperties notificationRabbitProperties;
     private final OtpRateLimitService otpRateLimitService;
     private final SecurityAuditService securityAuditService;
@@ -86,12 +93,14 @@ public class AuthService {
         user.setPassword(hasText(request.getPassword()) ? passwordEncoder.encode(request.getPassword()) : null);
         user.setFullName(request.getFullName().trim());
         user.setRole(request.getRole() == null ? Role.USER : request.getRole());
+        user.setEmailVerified(false);
         user.setAvatarUrl(null);
         user.setPhoneNumber(null);
         user.setSchool(null);
         user.setSubject(null);
 
         User savedUser = userRepository.save(user);
+        issueRegisterVerificationOtp(savedUser.getEmail());
         evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
         return RegisterResponse.builder()
                 .id(savedUser.getId())
@@ -114,6 +123,10 @@ public class AuthService {
         if (existingUser.isPresent() && !existingUser.get().isStatus()) {
             securityAuditService.failure(AUDIT_LOGIN, normalizedEmail, "user-account-locked");
             throw new BadCredentialsException("Account is locked");
+        }
+        if (existingUser.isPresent() && !existingUser.get().isEmailVerified()) {
+            securityAuditService.failure(AUDIT_LOGIN, normalizedEmail, "email-not-verified");
+            throw new BadCredentialsException("Email is not verified");
         }
 
         try {
@@ -155,6 +168,13 @@ public class AuthService {
                     String existingName = normalizeWhitespace(existingUser.getFullName());
                     if (isDuplicatedAdjacentName(existingName)) {
                         existingUser.setFullName(extractFirstHalf(existingName));
+                        existingUser.setEmailVerified(true);
+                        User savedUser = userRepository.save(existingUser);
+                        evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
+                        return savedUser;
+                    }
+                    if (!existingUser.isEmailVerified()) {
+                        existingUser.setEmailVerified(true);
                         User savedUser = userRepository.save(existingUser);
                         evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
                         return savedUser;
@@ -168,10 +188,46 @@ public class AuthService {
                     user.setRole(Role.USER);
                     user.setPassword(null);
                     user.setStatus(true);
+                    user.setEmailVerified(true);
                     User savedUser = userRepository.save(user);
                     evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
                     return savedUser;
                 });
+    }
+
+    public void resendRegisterVerificationOtp(String email) {
+        String normalizedEmail = email.trim().toLowerCase();
+        issueRegisterVerificationOtp(normalizedEmail);
+        securityAuditService.success(AUDIT_EMAIL_VERIFICATION, normalizedEmail, "otp-resent");
+    }
+
+    @Transactional
+    public void verifyRegisterEmailOtp(String email, String otp) {
+        String normalizedEmail = email.trim().toLowerCase();
+        String normalizedOtp = otp.trim();
+
+        String storedOtp = stringRedisTemplate.opsForValue().get(registerVerificationEmailOtpKey(normalizedEmail));
+        if (!hasText(storedOtp) || !storedOtp.equals(normalizedOtp)) {
+            securityAuditService.failure(AUDIT_EMAIL_VERIFICATION, normalizedEmail, "otp-mismatch-or-expired");
+            throw new IllegalArgumentException("OTP is invalid or expired");
+        }
+
+        String storedEmail = stringRedisTemplate.opsForValue().get(registerVerificationOtpKey(normalizedOtp));
+        if (!hasText(storedEmail) || !normalizedEmail.equalsIgnoreCase(storedEmail)) {
+            securityAuditService.failure(AUDIT_EMAIL_VERIFICATION, normalizedEmail, "otp-email-binding-invalid");
+            throw new IllegalArgumentException("OTP is invalid or expired");
+        }
+
+        User user = userRepository.findByEmailIgnoreCase(normalizedEmail)
+                .orElseThrow(() -> new IllegalArgumentException(USER_NOT_FOUND_MESSAGE));
+        if (!user.isEmailVerified()) {
+            user.setEmailVerified(true);
+            User savedUser = userRepository.save(user);
+            evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
+        }
+
+        clearRegisterVerificationOtp(normalizedEmail, normalizedOtp);
+        securityAuditService.success(AUDIT_EMAIL_VERIFICATION, normalizedEmail, "email-verified");
     }
 
     private String normalizeGoogleFullName(String fullName, String fallbackValue) {
@@ -238,18 +294,51 @@ public class AuthService {
         stringRedisTemplate.opsForValue().set(otpKey, normalizedEmail, ttl);
         stringRedisTemplate.opsForValue().set(emailKey, otp, ttl);
 
-        ForgotPasswordOtpMessage message = new ForgotPasswordOtpMessage(normalizedEmail, otp);
+        publishOtpMessage(normalizedEmail, otp, OTP_PURPOSE_FORGOT_PASSWORD, AUDIT_FORGOT_PASSWORD,
+                "otp-issued-and-published", "otp-issued-but-rabbit-publish-failed");
+    }
+
+    private void issueRegisterVerificationOtp(String normalizedEmail) {
+        User user = userRepository.findByEmailIgnoreCase(normalizedEmail).orElse(null);
+        if (user == null || user.isEmailVerified()) {
+            return;
+        }
+
+        String otp = String.format("%06d", secureRandom.nextInt(1_000_000));
+        Duration ttl = Duration.ofSeconds(emailVerificationProperties.getOtpTtlSeconds());
+
+        String otpKey = registerVerificationOtpKey(otp);
+        String emailKey = registerVerificationEmailOtpKey(normalizedEmail);
+        stringRedisTemplate.opsForValue().set(otpKey, normalizedEmail, ttl);
+        stringRedisTemplate.opsForValue().set(emailKey, otp, ttl);
+
+        publishOtpMessage(normalizedEmail, otp, OTP_PURPOSE_EMAIL_VERIFICATION, AUDIT_EMAIL_VERIFICATION,
+                "otp-issued-and-published", "otp-issued-but-rabbit-publish-failed");
+    }
+
+    private void publishOtpMessage(
+            String normalizedEmail,
+            String otp,
+            String purpose,
+            String auditAction,
+            String successDetail,
+            String failureDetail) {
+        EmailOtpMessage message = new EmailOtpMessage(normalizedEmail, otp, purpose);
         try {
             rabbitTemplate.convertAndSend(
                     notificationRabbitProperties.getExchange(),
                     notificationRabbitProperties.getEmailOtpRoutingKey(),
                     message);
-            securityAuditService.success(AUDIT_FORGOT_PASSWORD, normalizedEmail, "otp-issued-and-published");
+            securityAuditService.success(auditAction, normalizedEmail, successDetail);
         } catch (AmqpException exception) {
-            log.error("Failed to publish forgot-password OTP message for email {}", normalizedEmail, exception);
-            securityAuditService.failure(AUDIT_FORGOT_PASSWORD, normalizedEmail,
-                    "otp-issued-but-rabbit-publish-failed");
+            log.error("Failed to publish {} OTP message for email {}", purpose, normalizedEmail, exception);
+            securityAuditService.failure(auditAction, normalizedEmail, failureDetail);
         }
+    }
+
+    private void clearRegisterVerificationOtp(String email, String otp) {
+        stringRedisTemplate.delete(registerVerificationEmailOtpKey(email));
+        stringRedisTemplate.delete(registerVerificationOtpKey(otp));
     }
 
     @Transactional(readOnly = true)
@@ -612,5 +701,13 @@ public class AuthService {
 
     private String resetPasswordTokenKey(String token) {
         return RESET_PASSWORD_TOKEN_KEY_PREFIX + token;
+    }
+
+    private String registerVerificationOtpKey(String otp) {
+        return REGISTER_EMAIL_VERIFICATION_OTP_KEY_PREFIX + otp;
+    }
+
+    private String registerVerificationEmailOtpKey(String email) {
+        return REGISTER_EMAIL_VERIFICATION_EMAIL_KEY_PREFIX + email;
     }
 }

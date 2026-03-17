@@ -1,8 +1,9 @@
 package com.exam_bank.auth_service.service;
 
 import com.exam_bank.auth_service.config.properties.AuthForgotPasswordProperties;
+import com.exam_bank.auth_service.config.properties.AuthEmailVerificationProperties;
 import com.exam_bank.auth_service.config.properties.NotificationRabbitProperties;
-import com.exam_bank.auth_service.dto.message.ForgotPasswordOtpMessage;
+import com.exam_bank.auth_service.dto.message.EmailOtpMessage;
 import com.exam_bank.auth_service.dto.request.LoginRequest;
 import com.exam_bank.auth_service.dto.request.RefreshTokenRequest;
 import com.exam_bank.auth_service.dto.request.RegisterRequest;
@@ -85,6 +86,9 @@ class AuthServiceTest {
     private AuthForgotPasswordProperties forgotPasswordProperties;
 
     @Mock
+    private AuthEmailVerificationProperties emailVerificationProperties;
+
+    @Mock
     private NotificationRabbitProperties notificationRabbitProperties;
 
     @Mock
@@ -113,6 +117,7 @@ class AuthServiceTest {
         existingUser.setRole(Role.USER);
         existingUser.setPassword("encoded-password");
         existingUser.setStatus(true);
+        existingUser.setEmailVerified(true);
         existingUser.setCreatedAt(Instant.parse("2026-03-13T00:00:00Z"));
     }
 
@@ -123,7 +128,17 @@ class AuthServiceTest {
         request.setPassword("password123");
         request.setFullName("John Doe");
 
+        User savedUserForVerification = new User();
+        savedUserForVerification.setEmail("john@example.com");
+        savedUserForVerification.setEmailVerified(false);
+
         when(userRepository.existsByEmailIgnoreCase("john@example.com")).thenReturn(false);
+        when(emailVerificationProperties.getOtpTtlSeconds()).thenReturn(300L);
+        when(notificationRabbitProperties.getExchange()).thenReturn("notification.events");
+        when(notificationRabbitProperties.getEmailOtpRoutingKey()).thenReturn("notification.send.email.otp");
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(userRepository.findByEmailIgnoreCase("john@example.com"))
+                .thenReturn(Optional.of(savedUserForVerification));
         when(passwordEncoder.encode("password123")).thenReturn("encoded-password");
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
             User user = invocation.getArgument(0);
@@ -138,10 +153,12 @@ class AuthServiceTest {
         assertThat(response.email()).isEqualTo("john@example.com");
         assertThat(response.fullName()).isEqualTo("John Doe");
         assertThat(response.role()).isEqualTo(Role.USER);
+        verify(valueOperations, times(2)).set(any(String.class), any(String.class), any(Duration.class));
 
         ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
         verify(userRepository).save(userCaptor.capture());
         assertThat(userCaptor.getValue().getPassword()).isEqualTo("encoded-password");
+        assertThat(userCaptor.getValue().isEmailVerified()).isFalse();
     }
 
     @Test
@@ -213,6 +230,7 @@ class AuthServiceTest {
         bannedUser.setPassword("encoded-password");
         bannedUser.setRole(Role.USER);
         bannedUser.setStatus(false);
+        bannedUser.setEmailVerified(true);
 
         when(loginAttemptService.isBlocked("john@example.com")).thenReturn(false);
         when(userRepository.findByEmailIgnoreCase("john@example.com")).thenReturn(Optional.of(bannedUser));
@@ -220,6 +238,27 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.login(request))
                 .isInstanceOf(BadCredentialsException.class)
                 .hasMessage("Account is locked");
+
+        verify(authenticationManager, never()).authenticate(any());
+    }
+
+    @Test
+    void login_shouldThrowBadCredentials_whenEmailNotVerified() {
+        LoginRequest request = new LoginRequest();
+        request.setEmail("john@example.com");
+        request.setPassword("password123");
+
+        User notVerifiedUser = new User();
+        notVerifiedUser.setEmail("john@example.com");
+        notVerifiedUser.setStatus(true);
+        notVerifiedUser.setEmailVerified(false);
+
+        when(loginAttemptService.isBlocked("john@example.com")).thenReturn(false);
+        when(userRepository.findByEmailIgnoreCase("john@example.com")).thenReturn(Optional.of(notVerifiedUser));
+
+        assertThatThrownBy(() -> authService.login(request))
+                .isInstanceOf(BadCredentialsException.class)
+                .hasMessage("Email is not verified");
 
         verify(authenticationManager, never()).authenticate(any());
     }
@@ -382,8 +421,8 @@ class AuthServiceTest {
         assertThat(otpValue).matches("\\d{6}");
         assertThat(ttlCaptor.getAllValues()).containsOnly(Duration.ofSeconds(300));
 
-        ArgumentCaptor<ForgotPasswordOtpMessage> messageCaptor = ArgumentCaptor
-                .forClass(ForgotPasswordOtpMessage.class);
+        ArgumentCaptor<EmailOtpMessage> messageCaptor = ArgumentCaptor
+                .forClass(EmailOtpMessage.class);
         verify(rabbitTemplate).convertAndSend(
                 org.mockito.ArgumentMatchers.eq("notification.events"),
                 org.mockito.ArgumentMatchers.eq("notification.send.email.otp"),
@@ -391,6 +430,7 @@ class AuthServiceTest {
 
         assertThat(messageCaptor.getValue().email()).isEqualTo("user@gmail.com");
         assertThat(messageCaptor.getValue().otp()).matches("\\d{6}");
+        assertThat(messageCaptor.getValue().purpose()).isEqualTo("FORGOT_PASSWORD");
     }
 
     @Test
@@ -402,7 +442,7 @@ class AuthServiceTest {
 
         doThrow(new AmqpAuthenticationException(new RuntimeException("ACCESS_REFUSED")))
                 .when(rabbitTemplate)
-                .convertAndSend(any(String.class), any(String.class), any(ForgotPasswordOtpMessage.class));
+                .convertAndSend(any(String.class), any(String.class), any(EmailOtpMessage.class));
 
         assertThatCode(() -> authService.forgotPassword("User@Gmail.com"))
                 .doesNotThrowAnyException();
@@ -425,7 +465,46 @@ class AuthServiceTest {
         verify(rabbitTemplate, never()).convertAndSend(
                 any(String.class),
                 any(String.class),
-                any(ForgotPasswordOtpMessage.class));
+                any(EmailOtpMessage.class));
+    }
+
+    @Test
+    void resendRegisterVerificationOtp_shouldPublishVerificationPurposeMessage() {
+        User unverifiedUser = new User();
+        unverifiedUser.setEmail("user@gmail.com");
+        unverifiedUser.setEmailVerified(false);
+
+        when(emailVerificationProperties.getOtpTtlSeconds()).thenReturn(300L);
+        when(notificationRabbitProperties.getExchange()).thenReturn("notification.events");
+        when(notificationRabbitProperties.getEmailOtpRoutingKey()).thenReturn("notification.send.email.otp");
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(userRepository.findByEmailIgnoreCase("user@gmail.com")).thenReturn(Optional.of(unverifiedUser));
+
+        authService.resendRegisterVerificationOtp("User@gmail.com");
+
+        ArgumentCaptor<EmailOtpMessage> messageCaptor = ArgumentCaptor.forClass(EmailOtpMessage.class);
+        verify(rabbitTemplate).convertAndSend(any(String.class), any(String.class), messageCaptor.capture());
+        assertThat(messageCaptor.getValue().purpose()).isEqualTo("EMAIL_VERIFICATION");
+    }
+
+    @Test
+    void verifyRegisterEmailOtp_shouldMarkUserVerified_whenOtpMatches() {
+        User unverifiedUser = new User();
+        unverifiedUser.setId(8L);
+        unverifiedUser.setEmail("user@gmail.com");
+        unverifiedUser.setEmailVerified(false);
+
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get("register_verify:email:user@gmail.com")).thenReturn("123456");
+        when(valueOperations.get("register_verify:otp:123456")).thenReturn("user@gmail.com");
+        when(userRepository.findByEmailIgnoreCase("user@gmail.com")).thenReturn(Optional.of(unverifiedUser));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        authService.verifyRegisterEmailOtp("User@gmail.com", "123456");
+
+        verify(userRepository).save(argThat(User::isEmailVerified));
+        verify(stringRedisTemplate).delete("register_verify:email:user@gmail.com");
+        verify(stringRedisTemplate).delete("register_verify:otp:123456");
     }
 
     @Test
