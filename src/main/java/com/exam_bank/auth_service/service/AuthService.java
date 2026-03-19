@@ -616,7 +616,7 @@ public class AuthService {
     }
 
     private AuthTokenResponse issueTokenPair(User user) {
-        String accessToken = jwtService.generateToken(user.getEmail(), user.getRole());
+        String accessToken = jwtService.generateToken(user.getId(), user.getEmail(), user.getRole());
         String refreshToken = jwtService.generateRefreshToken();
         long refreshTtlSeconds = jwtService.getRefreshTokenExpirationSeconds();
         refreshTokenService.store(user.getId(), refreshToken, Duration.ofSeconds(refreshTtlSeconds));

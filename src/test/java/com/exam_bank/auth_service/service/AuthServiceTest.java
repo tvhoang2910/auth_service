@@ -182,7 +182,7 @@ class AuthServiceTest {
         request.setPassword("password123");
 
         when(userRepository.findByEmailIgnoreCase("john@example.com")).thenReturn(Optional.of(existingUser));
-        when(jwtService.generateToken("john@example.com", Role.USER)).thenReturn("jwt-token");
+        when(jwtService.generateToken(7L, "john@example.com", Role.USER)).thenReturn("jwt-token");
         when(jwtService.generateRefreshToken()).thenReturn("refresh-token");
         when(jwtService.getExpirationSeconds()).thenReturn(3600L);
         when(jwtService.getRefreshTokenExpirationSeconds()).thenReturn(604800L);
@@ -312,7 +312,7 @@ class AuthServiceTest {
         when(refreshTokenService.resolveUserId("refresh-token")).thenReturn(Optional.of(7L));
         when(refreshTokenService.findByUserId(7L)).thenReturn(Optional.of("refresh-token"));
         when(userRepository.findById(7L)).thenReturn(Optional.of(existingUser));
-        when(jwtService.generateToken("john@example.com", Role.USER)).thenReturn("new-access");
+        when(jwtService.generateToken(7L, "john@example.com", Role.USER)).thenReturn("new-access");
         when(jwtService.generateRefreshToken()).thenReturn("new-refresh");
         when(jwtService.getExpirationSeconds()).thenReturn(3600L);
         when(jwtService.getRefreshTokenExpirationSeconds()).thenReturn(604800L);

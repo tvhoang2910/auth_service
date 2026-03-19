@@ -26,4 +26,16 @@ public class NotificationRabbitProperties {
 
     @NotBlank
     private String emailQueue;
+
+    @NotBlank
+    private String emailSubscriptionReviewRoutingKey;
+
+    @NotBlank
+    private String webPushSubscriptionReviewRoutingKey;
+
+    @NotBlank
+    private String emailSubscriptionReviewedRoutingKey;
+
+    @NotBlank
+    private String webPushSubscriptionReviewedRoutingKey;
 }

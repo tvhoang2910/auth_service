@@ -4,6 +4,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.jwt.JwtException;
+import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -56,6 +57,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException exception) {
         return buildResponse(HttpStatus.BAD_REQUEST, exception.getMessage());
+    }
+
+    @ExceptionHandler(HttpMessageConversionException.class)
+    public ResponseEntity<Map<String, Object>> handleHttpMessageConversion(HttpMessageConversionException exception) {
+        return buildResponse(HttpStatus.BAD_REQUEST, "Malformed JSON request body");
     }
 
     private ResponseEntity<Map<String, Object>> buildResponse(HttpStatus status, String message) {

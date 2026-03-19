@@ -27,13 +27,14 @@ public class JwtService {
     private final AuthRefreshTokenProperties authRefreshTokenProperties;
     private final SecureRandom secureRandom = new SecureRandom();
 
-    public String generateToken(String subject, Role role) {
+    public String generateToken(Long userId, String subject, Role role) {
         Instant now = Instant.now();
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer(authJwtProperties.getIssuer())
                 .subject(subject)
                 .issuedAt(now)
                 .expiresAt(now.plusSeconds(authJwtProperties.getExpirationSeconds()))
+                .claim("userId", userId)
                 .claim("role", role.name())
                 .build();
 

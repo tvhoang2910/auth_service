@@ -1,0 +1,8 @@
+{
+    "name": "Premium Plus",
+    "price": 99000,
+    "durationDays": 30,
+    "lifetime": false,
+    "description": "test",
+    "active": true
+}
