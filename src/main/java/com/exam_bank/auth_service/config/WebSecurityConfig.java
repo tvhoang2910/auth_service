@@ -22,8 +22,12 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -144,9 +148,28 @@ public class WebSecurityConfig {
     @Bean
     public JwtDecoder jwtDecoder() {
         SecretKey secretKey = getJwtSecretKey();
-        return NimbusJwtDecoder.withSecretKey(secretKey)
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(secretKey)
                 .macAlgorithm(MacAlgorithm.HS256)
                 .build();
+
+        OAuth2TokenValidator<Jwt> withIssuer = JwtValidators.createDefaultWithIssuer(authJwtProperties.getIssuer());
+        OAuth2TokenValidator<Jwt> hasRoleClaim = new JwtClaimValidator<>("role",
+                role -> role instanceof String value && hasText(value));
+        OAuth2TokenValidator<Jwt> hasUserIdClaim = new JwtClaimValidator<>("userId", claim -> {
+            if (claim instanceof Number number) {
+                return number.longValue() > 0;
+            }
+            if (claim instanceof String value) {
+                try {
+                    return Long.parseLong(value.trim()) > 0;
+                } catch (NumberFormatException ex) {
+                    return false;
+                }
+            }
+            return false;
+        });
+        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(withIssuer, hasRoleClaim, hasUserIdClaim));
+        return decoder;
     }
 
     private SecretKey getJwtSecretKey() {
