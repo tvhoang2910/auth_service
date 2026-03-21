@@ -27,7 +27,7 @@ Khi nhận bất kỳ bug nào (error, failing test, UI issue, logic issue…), 
 7. **Remove all temporary logging** sau khi fix xong.
 8. **Run full tests + lint** lần cuối → đảm bảo sạch sẽ, không side-effect.
 
-→ Nếu bug là UI: Yêu cầu mô tả hoặc screenshot (nếu có).
+→ Nếu bug là UI: Yêu cầu mô tả hoặc screenshot (nếu có).  
 → Nếu bug phức tạp: Trước tiên chỉ **Analyze root cause + propose 3 solutions** (không sửa ngay).
 
 ## 4. Backend - Spring Boot Rules
@@ -64,4 +64,20 @@ Khi nhận bất kỳ bug nào (error, failing test, UI issue, logic issue…), 
 - Minimal code change
 - Production mindset: Code phải sẵn sàng deploy bất cứ lúc nào
 
-Luôn ưu tiên readability, testability, long-term velocity. Nếu không chắc → over-communicate plan trước.
+## 9. Git Workflow & Merge Best Practices (Staff Engineer Standards)
+
+### 9.1. Quy tắc Vàng (Bắt buộc - Không ngoại lệ)
+- Không bao giờ commit trực tiếp vào `main`/`develop`
+- Luôn làm việc trên **feature branch** (tên chuẩn: `feature/ticket-xxx`, `bugfix/xxx`, `chore/xxx`)
+- Merge vào nhánh chung **chỉ qua Pull Request (PR)**
+- Không bao giờ `rebase` nhánh đã push/shared (sẽ phá lịch sử CI/CD và nhánh đồng đội)
+- Trước khi tạo PR: **rebase** feature branch lên `main`/`develop` mới nhất (chỉ trên nhánh cá nhân)
+
+### 9.2. Quy trình Merge Chuẩn (8 Bước Staff Level)
+1. `git checkout feature/xxx`
+2. `git pull origin main --rebase` (hoặc develop)
+3. Giải quyết conflict (ưu tiên thủ công, đặc biệt `pom.xml`, `application.yml`, `package.json`, `yarn.lock`/`package-lock.json`)
+4. Chạy full build & test:
+   ```bash
+   mvn clean install
+   cd frontend && npm ci && npm run build && npm test
