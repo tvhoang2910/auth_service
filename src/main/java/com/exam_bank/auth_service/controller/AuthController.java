@@ -2,6 +2,7 @@ package com.exam_bank.auth_service.controller;
 
 import com.exam_bank.auth_service.dto.request.RegisterRequest;
 import com.exam_bank.auth_service.dto.request.LoginRequest;
+import com.exam_bank.auth_service.dto.request.OAuth2ExchangeRequest;
 import com.exam_bank.auth_service.dto.request.RefreshTokenRequest;
 import com.exam_bank.auth_service.dto.request.ForgotPasswordRequest;
 import com.exam_bank.auth_service.dto.request.VerifyForgotPasswordOtpRequest;
@@ -13,6 +14,7 @@ import com.exam_bank.auth_service.dto.response.RegisterResponse;
 import com.exam_bank.auth_service.dto.response.ResetPasswordTokenResponse;
 import com.exam_bank.auth_service.dto.response.UserProfileResponse;
 import com.exam_bank.auth_service.service.AuthService;
+import com.exam_bank.auth_service.service.OAuth2LoginExchangeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +44,7 @@ public class AuthController {
     private static final String MESSAGE_KEY = "message";
 
     private final AuthService authService;
+    private final OAuth2LoginExchangeService oauth2LoginExchangeService;
 
     @PostMapping("/register")
     public ResponseEntity<RegisterResponse> register(@Valid @RequestBody RegisterRequest request) {
@@ -77,7 +80,7 @@ public class AuthController {
     public ResponseEntity<Map<String, String>> logout(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader) {
         log.info("logout: authorizationHeaderPresent={}",
-            authorizationHeader != null && !authorizationHeader.isBlank());
+                authorizationHeader != null && !authorizationHeader.isBlank());
         authService.logout(authorizationHeader);
         return ResponseEntity.ok(Map.of(MESSAGE_KEY, "Logged out successfully"));
     }
@@ -86,6 +89,16 @@ public class AuthController {
     public ResponseEntity<AuthTokenResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
         log.debug("refresh: request received");
         AuthTokenResponse response = authService.refresh(request);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/oauth2/exchange")
+    public ResponseEntity<AuthTokenResponse> exchangeOAuth2Code(
+            @Valid @RequestBody OAuth2ExchangeRequest request) {
+        log.info("exchangeOAuth2Code: codePresent={}",
+                request.getCode() != null && !request.getCode().isBlank());
+        Long userId = oauth2LoginExchangeService.consumeUserId(request.getCode());
+        AuthTokenResponse response = authService.issueTokenByUserId(userId);
         return ResponseEntity.ok(response);
     }
 

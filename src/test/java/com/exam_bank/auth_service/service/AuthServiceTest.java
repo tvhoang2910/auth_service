@@ -204,6 +204,23 @@ class AuthServiceTest {
     }
 
     @Test
+    void issueTokenByUserId_shouldIssueTokenPair_whenUserIsActive() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(existingUser));
+        when(jwtService.generateToken(7L, "john@example.com", Role.USER)).thenReturn("issued-access");
+        when(jwtService.generateRefreshToken()).thenReturn("issued-refresh");
+        when(jwtService.getExpirationSeconds()).thenReturn(3600L);
+        when(jwtService.getRefreshTokenExpirationSeconds()).thenReturn(604800L);
+
+        AuthTokenResponse response = authService.issueTokenByUserId(7L);
+
+        assertThat(response.accessToken()).isEqualTo("issued-access");
+        assertThat(response.refreshToken()).isEqualTo("issued-refresh");
+        assertThat(response.email()).isEqualTo("john@example.com");
+        assertThat(response.role()).isEqualTo(Role.USER);
+        verify(refreshTokenService).store(7L, "issued-refresh", Duration.ofSeconds(604800L));
+    }
+
+    @Test
     void login_shouldThrowBruteForceBlocked_whenEmailIsLocked() {
         LoginRequest request = new LoginRequest();
         request.setEmail("john@example.com");

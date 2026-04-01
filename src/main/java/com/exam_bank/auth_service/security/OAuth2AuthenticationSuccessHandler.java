@@ -1,9 +1,9 @@
 package com.exam_bank.auth_service.security;
 
 import com.exam_bank.auth_service.config.properties.AppOauth2Properties;
-import com.exam_bank.auth_service.dto.response.AuthTokenResponse;
 import com.exam_bank.auth_service.entity.User;
 import com.exam_bank.auth_service.service.AuthService;
+import com.exam_bank.auth_service.service.OAuth2LoginExchangeService;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -23,6 +23,7 @@ import static org.springframework.util.StringUtils.hasText;
 public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
 
     private final AuthService authService;
+    private final OAuth2LoginExchangeService oauth2LoginExchangeService;
     private final AppOauth2Properties appOauth2Properties;
 
     @Override
@@ -46,15 +47,10 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
             response.sendError(HttpServletResponse.SC_FORBIDDEN, "Account is locked");
             return;
         }
-        AuthTokenResponse tokenResponse = authService.issueToken(user);
+        String exchangeCode = oauth2LoginExchangeService.issueCode(user.getId());
 
         String targetUrl = UriComponentsBuilder.fromUriString(appOauth2Properties.getSuccessRedirectUrl())
-                .queryParam("token", tokenResponse.accessToken())
-                .queryParam("refreshToken", tokenResponse.refreshToken())
-                .queryParam("email", tokenResponse.email())
-                .queryParam("role", tokenResponse.role())
-                .queryParam("tokenType", tokenResponse.tokenType())
-                .queryParam("expiresIn", tokenResponse.expiresIn())
+                .queryParam("code", exchangeCode)
                 .build(true)
                 .toUriString();
 

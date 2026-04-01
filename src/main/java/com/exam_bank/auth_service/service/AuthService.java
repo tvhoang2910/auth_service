@@ -270,6 +270,19 @@ public class AuthService {
         return issueTokenPair(user);
     }
 
+    public AuthTokenResponse issueTokenByUserId(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new BadCredentialsException(USER_NOT_FOUND_MESSAGE);
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BadCredentialsException(USER_NOT_FOUND_MESSAGE));
+        if (!user.isStatus()) {
+            throw new BadCredentialsException("Account is locked");
+        }
+        return issueTokenPair(user);
+    }
+
     public void forgotPassword(String email) {
         String normalizedEmail = email.trim().toLowerCase();
         otpRateLimitService.checkForgotAllowed(normalizedEmail);

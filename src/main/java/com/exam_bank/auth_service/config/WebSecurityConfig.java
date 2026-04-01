@@ -1,6 +1,7 @@
 package com.exam_bank.auth_service.config;
 
 import com.exam_bank.auth_service.config.properties.AuthJwtProperties;
+import com.exam_bank.auth_service.config.properties.CorsProperties;
 import com.exam_bank.auth_service.security.JwtBlacklistFilter;
 import com.exam_bank.auth_service.security.OAuth2AuthenticationSuccessHandler;
 import com.exam_bank.auth_service.service.AppUserDetailsService;
@@ -53,17 +54,20 @@ public class WebSecurityConfig {
     private final AppUserDetailsService appUserDetailsService;
     private final AuthJwtProperties authJwtProperties;
     private final JwtBlacklistFilter jwtBlacklistFilter;
+    private final CorsProperties corsProperties;
 
     public WebSecurityConfig(Environment environment,
             @Lazy OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler,
             AppUserDetailsService appUserDetailsService,
             AuthJwtProperties authJwtProperties,
-            JwtBlacklistFilter jwtBlacklistFilter) {
+            JwtBlacklistFilter jwtBlacklistFilter,
+            CorsProperties corsProperties) {
         this.environment = environment;
         this.oAuth2AuthenticationSuccessHandler = oAuth2AuthenticationSuccessHandler;
         this.appUserDetailsService = appUserDetailsService;
         this.authJwtProperties = authJwtProperties;
         this.jwtBlacklistFilter = jwtBlacklistFilter;
+        this.corsProperties = corsProperties;
     }
 
     @Bean
@@ -106,11 +110,14 @@ public class WebSecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of("http://localhost:5173"));
-        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With"));
-        configuration.setExposedHeaders(List.of("Authorization"));
-        configuration.setAllowCredentials(true);
+        configuration.setAllowedOrigins(List.of(corsProperties.getAllowedOrigins().split(","))
+                .stream()
+                .map(String::trim)
+                .toList());
+        configuration.setAllowedMethods(corsProperties.getAllowedMethods());
+        configuration.setAllowedHeaders(corsProperties.getAllowedHeaders());
+        configuration.setExposedHeaders(corsProperties.getExposedHeaders());
+        configuration.setAllowCredentials(corsProperties.isAllowCredentials());
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
