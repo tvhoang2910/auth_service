@@ -33,3 +33,8 @@ build/
 .vscode/
 src/main/resources/application.properties
 .github/instructions/
+
+# Logs and test artifacts
+logs/
+*.log
+test-results/

@@ -10,6 +10,7 @@ import com.exam_bank.auth_service.entity.SubscriptionStatus;
 import com.exam_bank.auth_service.service.SubscriptionRequestService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -31,24 +32,34 @@ import java.util.List;
 @RestController
 @RequestMapping("/subscriptions")
 @RequiredArgsConstructor
+@Slf4j
 public class SubscriptionRequestController {
 
     private final SubscriptionRequestService subscriptionRequestService;
 
     @GetMapping("/plans")
     public ResponseEntity<List<PremiumPlanSummaryResponse>> getActivePlans() {
-        return ResponseEntity.ok(subscriptionRequestService.getActivePlans());
+        List<PremiumPlanSummaryResponse> plans = subscriptionRequestService.getActivePlans();
+        log.info("getActivePlans: count={}", plans.size());
+        return ResponseEntity.ok(plans);
     }
 
     @GetMapping("/plans/manage")
     public ResponseEntity<List<PremiumPlanSummaryResponse>> getPlansForManagement(Authentication authentication) {
-        return ResponseEntity.ok(subscriptionRequestService.getPlansForManagement(authentication.getName()));
+        List<PremiumPlanSummaryResponse> plans = subscriptionRequestService.getPlansForManagement(authentication.getName());
+        log.info("getPlansForManagement: actor={}, count={}", authentication.getName(), plans.size());
+        return ResponseEntity.ok(plans);
     }
 
     @PostMapping("/plans")
     public ResponseEntity<PremiumPlanSummaryResponse> createPremiumPlan(
             Authentication authentication,
             @Valid @org.springframework.web.bind.annotation.RequestBody CreatePremiumPlanRequest request) {
+        log.info("createPremiumPlan: actor={}, name={}, lifetime={}, durationDays={}",
+            authentication.getName(),
+            request.name(),
+            request.lifetime(),
+            request.durationDays());
         PremiumPlanSummaryResponse response = subscriptionRequestService.createPremiumPlan(authentication.getName(),
                 request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
@@ -63,6 +74,12 @@ public class SubscriptionRequestController {
             @RequestParam(required = false) String promoCode,
             @RequestParam(required = false) Boolean trial,
             @RequestPart("bill") MultipartFile bill) {
+            log.info("createPurchaseRequest: actor={}, planId={}, paymentMethod={}, trial={}, billSize={}",
+                authentication.getName(),
+                planId,
+                paymentMethod,
+                trial,
+                bill.getSize());
         UserSubscriptionQueueItemResponse response = subscriptionRequestService.createPurchaseRequest(
                 authentication.getName(),
                 planId,
@@ -76,7 +93,9 @@ public class SubscriptionRequestController {
 
     @GetMapping("/my-requests")
     public ResponseEntity<List<UserSubscriptionQueueItemResponse>> getMyRequests(Authentication authentication) {
-        return ResponseEntity.ok(subscriptionRequestService.getMyRequests(authentication.getName()));
+        List<UserSubscriptionQueueItemResponse> requests = subscriptionRequestService.getMyRequests(authentication.getName());
+        log.info("getMyRequests: actor={}, count={}", authentication.getName(), requests.size());
+        return ResponseEntity.ok(requests);
     }
 
     @GetMapping("/review-queue")
@@ -84,6 +103,11 @@ public class SubscriptionRequestController {
             Authentication authentication,
             @RequestParam(defaultValue = "PENDING_REVIEW") SubscriptionStatus status,
             Pageable pageable) {
+        log.info("getReviewQueue: actor={}, status={}, page={}, size={}",
+            authentication.getName(),
+            status,
+            pageable.getPageNumber(),
+            pageable.getPageSize());
         Page<UserSubscriptionQueueItemResponse> response = subscriptionRequestService.getReviewQueue(
                 authentication.getName(),
                 status,
@@ -105,6 +129,10 @@ public class SubscriptionRequestController {
             @PathVariable Long subscriptionId,
             Authentication authentication,
             @Valid @org.springframework.web.bind.annotation.RequestBody ReviewSubscriptionRequest request) {
+        log.info("reviewRequest: actor={}, subscriptionId={}, approved={}",
+            authentication.getName(),
+            subscriptionId,
+            request.approved());
         UserSubscriptionQueueItemResponse response = subscriptionRequestService.reviewRequest(
                 subscriptionId,
                 authentication.getName(),
@@ -116,7 +144,12 @@ public class SubscriptionRequestController {
     public ResponseEntity<List<SubscriptionApprovalAuditResponse>> getApprovals(
             @PathVariable Long subscriptionId,
             Authentication authentication) {
-        return ResponseEntity
-                .ok(subscriptionRequestService.getApprovalAudits(subscriptionId, authentication.getName()));
+        List<SubscriptionApprovalAuditResponse> approvals = subscriptionRequestService
+            .getApprovalAudits(subscriptionId, authentication.getName());
+        log.info("getApprovals: actor={}, subscriptionId={}, count={}",
+            authentication.getName(),
+            subscriptionId,
+            approvals.size());
+        return ResponseEntity.ok(approvals);
     }
 }

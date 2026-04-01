@@ -11,6 +11,7 @@ import com.exam_bank.auth_service.entity.Role;
 import com.exam_bank.auth_service.service.AdminUserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -28,6 +29,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 @RestController
 @RequestMapping("/admin/users")
 @RequiredArgsConstructor
+@Slf4j
 public class AdminUserController {
 
     private final AdminUserService adminUserService;
@@ -37,6 +39,11 @@ public class AdminUserController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false) Role role,
             Pageable pageable) {
+        log.info("adminGetUsers: search={}, role={}, page={}, size={}",
+            search,
+            role,
+            pageable.getPageNumber(),
+            pageable.getPageSize());
         Page<AdminUserItemResponse> response = adminUserService.getUsers(search, role, pageable);
         AdminUsersPageResponse body = new AdminUsersPageResponse(
                 response.getContent(),
@@ -51,6 +58,7 @@ public class AdminUserController {
 
     @PostMapping
     public ResponseEntity<AdminUserItemResponse> createUser(@Valid @RequestBody AdminCreateUserRequest request) {
+        log.info("adminCreateUser: email={}, role={}", request.email(), request.role());
         AdminUserItemResponse response = adminUserService.createUser(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -60,6 +68,11 @@ public class AdminUserController {
             @PathVariable Long id,
             Authentication authentication,
             @Valid @RequestBody AdminUpdateUserStatusRequest request) {
+        log.info("adminUpdateUserStatus: actor={}, userId={}, status={}, active={}",
+            authentication.getName(),
+            id,
+            request.status(),
+            request.active());
         AdminUserItemResponse response = adminUserService.updateUserStatus(id, request, authentication.getName());
         return ResponseEntity.ok(response);
     }
@@ -68,12 +81,15 @@ public class AdminUserController {
     public ResponseEntity<AdminUserItemResponse> updateUserRole(
             @PathVariable Long id,
             @Valid @RequestBody AdminUpdateUserRoleRequest request) {
+        log.info("adminUpdateUserRole: userId={}, role={}", id, request.role());
         AdminUserItemResponse response = adminUserService.updateUserRole(id, request);
         return ResponseEntity.ok(response);
     }
 
     @PostMapping("/import-json")
     public ResponseEntity<AdminImportUsersResponse> importUsers(@Valid @RequestBody AdminImportUsersRequest request) {
+        int userCount = request.users() == null ? 0 : request.users().size();
+        log.info("adminImportUsers: userCount={}, skipExisting={}", userCount, request.skipExisting());
         AdminImportUsersResponse response = adminUserService.importUsers(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }

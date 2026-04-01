@@ -15,6 +15,7 @@ import com.exam_bank.auth_service.dto.response.UserProfileResponse;
 import com.exam_bank.auth_service.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -35,6 +36,7 @@ import java.util.Map;
 @RestController
 @RequestMapping
 @RequiredArgsConstructor
+@Slf4j
 public class AuthController {
 
     private static final String MESSAGE_KEY = "message";
@@ -43,6 +45,7 @@ public class AuthController {
 
     @PostMapping("/register")
     public ResponseEntity<RegisterResponse> register(@Valid @RequestBody RegisterRequest request) {
+        log.info("register: email={}", request.getEmail());
         RegisterResponse response = authService.register(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -50,6 +53,7 @@ public class AuthController {
     @PostMapping("/register/resend-verification")
     public ResponseEntity<Map<String, String>> resendRegisterVerification(
             @Valid @RequestBody ForgotPasswordRequest request) {
+        log.info("resendRegisterVerification: email={}", request.email());
         authService.resendRegisterVerificationOtp(request.email());
         return ResponseEntity.ok(Map.of(MESSAGE_KEY, "Verification OTP has been resent if account exists"));
     }
@@ -57,12 +61,14 @@ public class AuthController {
     @PostMapping("/register/verify-email")
     public ResponseEntity<Map<String, String>> verifyRegisterEmail(
             @Valid @RequestBody VerifyEmailOtpRequest request) {
+        log.info("verifyRegisterEmail: email={}", request.email());
         authService.verifyRegisterEmailOtp(request.email(), request.otp());
         return ResponseEntity.ok(Map.of(MESSAGE_KEY, "Email verified successfully"));
     }
 
     @PostMapping("/login")
     public ResponseEntity<AuthTokenResponse> login(@Valid @RequestBody LoginRequest request) {
+        log.info("login: email={}", request.getEmail());
         AuthTokenResponse response = authService.login(request);
         return ResponseEntity.ok(response);
     }
@@ -70,18 +76,22 @@ public class AuthController {
     @PostMapping("/logout")
     public ResponseEntity<Map<String, String>> logout(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader) {
+        log.info("logout: authorizationHeaderPresent={}",
+            authorizationHeader != null && !authorizationHeader.isBlank());
         authService.logout(authorizationHeader);
         return ResponseEntity.ok(Map.of(MESSAGE_KEY, "Logged out successfully"));
     }
 
     @PostMapping("/refresh")
     public ResponseEntity<AuthTokenResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        log.debug("refresh: request received");
         AuthTokenResponse response = authService.refresh(request);
         return ResponseEntity.ok(response);
     }
 
     @PostMapping("/forgot-password")
     public ResponseEntity<Map<String, String>> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        log.info("forgotPassword: email={}", request.email());
         authService.forgotPassword(request.email());
         return ResponseEntity.ok(Map.of(MESSAGE_KEY, "OTP has been sent if email exists"));
     }
@@ -89,6 +99,7 @@ public class AuthController {
     @PostMapping("/forgot-password/resend")
     public ResponseEntity<Map<String, String>> resendForgotPasswordOtp(
             @Valid @RequestBody ForgotPasswordRequest request) {
+        log.info("resendForgotPasswordOtp: email={}", request.email());
         authService.resendForgotPasswordOtp(request.email());
         return ResponseEntity.ok(Map.of(MESSAGE_KEY, "OTP has been resent if email exists"));
     }
@@ -96,18 +107,22 @@ public class AuthController {
     @PostMapping("/forgot-password/verify-otp")
     public ResponseEntity<ResetPasswordTokenResponse> verifyForgotPasswordOtp(
             @Valid @RequestBody VerifyForgotPasswordOtpRequest request) {
+        log.info("verifyForgotPasswordOtp: email={}", request.email());
         String resetToken = authService.verifyForgotPasswordOtp(request.email(), request.otp());
         return ResponseEntity.ok(new ResetPasswordTokenResponse(resetToken, "OTP verified successfully"));
     }
 
     @PostMapping("/reset-password")
     public ResponseEntity<Map<String, String>> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        log.info("resetPassword: tokenPresent={}",
+                request.resetToken() != null && !request.resetToken().isBlank());
         authService.resetPassword(request.resetToken(), request.newPassword());
         return ResponseEntity.ok(Map.of(MESSAGE_KEY, "Password reset successfully"));
     }
 
     @GetMapping("/me")
     public ResponseEntity<UserProfileResponse> me(Authentication authentication) {
+        log.debug("me: email={}", authentication.getName());
         UserProfileResponse response = authService.getMyProfile(authentication.getName());
         return ResponseEntity.ok(response);
     }
@@ -116,6 +131,7 @@ public class AuthController {
     public ResponseEntity<UserProfileResponse> updateMe(
             Authentication authentication,
             @Valid @RequestBody UpdateMyProfileRequest request) {
+        log.info("updateMe: email={}", authentication.getName());
         UserProfileResponse response = authService.updateMyProfile(authentication.getName(), request);
         return ResponseEntity.ok(response);
     }
@@ -124,6 +140,10 @@ public class AuthController {
     public ResponseEntity<UserProfileResponse> uploadMyAvatar(
             Authentication authentication,
             @RequestPart("file") MultipartFile file) {
+        log.info("uploadMyAvatar: email={}, fileName={}, size={}",
+                authentication.getName(),
+                file.getOriginalFilename(),
+                file.getSize());
         UserProfileResponse response = authService.uploadMyAvatar(authentication.getName(), file);
         return ResponseEntity.ok(response);
     }
