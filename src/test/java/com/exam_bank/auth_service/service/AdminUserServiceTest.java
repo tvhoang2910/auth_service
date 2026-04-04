@@ -1,6 +1,8 @@
 package com.exam_bank.auth_service.service;
 
 import com.exam_bank.auth_service.dto.request.AdminCreateUserRequest;
+import com.exam_bank.auth_service.dto.request.AdminImportUserItemRequest;
+import com.exam_bank.auth_service.dto.request.AdminImportUsersRequest;
 import com.exam_bank.auth_service.dto.request.AdminUpdateUserRoleRequest;
 import com.exam_bank.auth_service.dto.request.AdminUpdateUserStatusRequest;
 import com.exam_bank.auth_service.dto.message.AccountLockedMessage;
@@ -197,5 +199,24 @@ class AdminUserServiceTest {
                                 new AdminUpdateUserRoleRequest(Role.ADMIN));
 
                 assertThat(response.role()).isEqualTo(Role.ADMIN);
+        }
+
+        @Test
+        void importUsers_shouldRejectWhenBatchSizeExceedsLimit() {
+                List<AdminImportUserItemRequest> users = java.util.stream.IntStream.rangeClosed(1, 1001)
+                                .mapToObj(index -> new AdminImportUserItemRequest(
+                                                "user" + index + "@example.com",
+                                                "User " + index,
+                                                "super-secret-" + index,
+                                                Role.CONTRIBUTOR,
+                                                null,
+                                                null,
+                                                null,
+                                                null))
+                                .toList();
+
+                assertThatThrownBy(() -> adminUserService.importUsers(new AdminImportUsersRequest(users, true)))
+                                .isInstanceOf(IllegalArgumentException.class)
+                                .hasMessage("Batch size exceeds maximum allowed (1000)");
         }
 }

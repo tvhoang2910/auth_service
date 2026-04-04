@@ -393,6 +393,7 @@ public class SubscriptionRequestService {
             for (User reviewer : reviewers) {
                 SubscriptionReviewRequestedMessage message = new SubscriptionReviewRequestedMessage(
                         subscription.getId(),
+                        reviewer.getId(),
                         reviewer.getEmail(),
                         reviewer.getFullName(),
                         subscription.getUser().getEmail(),
@@ -428,6 +429,7 @@ public class SubscriptionRequestService {
             boolean approved) {
         SubscriptionReviewedMessage message = new SubscriptionReviewedMessage(
                 subscription.getId(),
+                subscription.getUser().getId(),
                 subscription.getUser().getEmail(),
                 subscription.getUser().getFullName(),
                 subscription.getPlan().getName(),

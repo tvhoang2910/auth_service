@@ -5,8 +5,11 @@ import com.exam_bank.auth_service.dto.request.VerifyEmailOtpRequest;
 import com.exam_bank.auth_service.dto.response.AuthTokenResponse;
 import com.exam_bank.auth_service.entity.Role;
 import com.exam_bank.auth_service.exception.GlobalExceptionHandler;
+import com.exam_bank.auth_service.repository.UserRepository;
+import com.exam_bank.auth_service.security.JwtService;
 import com.exam_bank.auth_service.service.AuthService;
 import com.exam_bank.auth_service.service.OAuth2LoginExchangeService;
+import com.exam_bank.auth_service.service.PresenceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,12 +36,22 @@ class AuthControllerIntegrationTest {
 
     private OAuth2LoginExchangeService oauth2LoginExchangeService;
 
+    private JwtService jwtService;
+
+    private PresenceService presenceService;
+
+    private UserRepository userRepository;
+
     @BeforeEach
     void setUp() {
         authService = mock(AuthService.class);
         oauth2LoginExchangeService = mock(OAuth2LoginExchangeService.class);
+        jwtService = mock(JwtService.class);
+        presenceService = mock(PresenceService.class);
+        userRepository = mock(UserRepository.class);
         objectMapper = new ObjectMapper();
-        AuthController authController = new AuthController(authService, oauth2LoginExchangeService);
+        AuthController authController = new AuthController(
+                authService, oauth2LoginExchangeService, jwtService, presenceService, userRepository);
         mockMvc = MockMvcBuilders.standaloneSetup(authController)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

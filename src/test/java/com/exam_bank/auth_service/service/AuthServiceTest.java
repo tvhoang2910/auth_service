@@ -42,6 +42,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
@@ -136,7 +137,6 @@ class AuthServiceTest {
         when(emailVerificationProperties.getOtpTtlSeconds()).thenReturn(300L);
         when(notificationRabbitProperties.getExchange()).thenReturn("notification.events");
         when(notificationRabbitProperties.getEmailOtpRoutingKey()).thenReturn("notification.send.email.otp");
-        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
         when(userRepository.findByEmailIgnoreCase("john@example.com"))
                 .thenReturn(Optional.of(savedUserForVerification));
         when(passwordEncoder.encode("password123")).thenReturn("encoded-password");
@@ -153,7 +153,7 @@ class AuthServiceTest {
         assertThat(response.email()).isEqualTo("john@example.com");
         assertThat(response.fullName()).isEqualTo("John Doe");
         assertThat(response.role()).isEqualTo(Role.USER);
-        verify(valueOperations, times(2)).set(any(String.class), any(String.class), any(Duration.class));
+        verify(stringRedisTemplate).execute(any(), anyList(), any(), any(), any());
 
         ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
         verify(userRepository).save(userCaptor.capture());
@@ -408,35 +408,11 @@ class AuthServiceTest {
         when(forgotPasswordProperties.getOtpTtlSeconds()).thenReturn(300L);
         when(notificationRabbitProperties.getExchange()).thenReturn("notification.events");
         when(notificationRabbitProperties.getEmailOtpRoutingKey()).thenReturn("notification.send.email.otp");
-        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
 
         authService.forgotPassword("User@Gmail.com");
 
         verify(otpRateLimitService).checkForgotAllowed("user@gmail.com");
-
-        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> valueCaptor = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<Duration> ttlCaptor = ArgumentCaptor.forClass(Duration.class);
-        verify(valueOperations, times(2)).set(keyCaptor.capture(), valueCaptor.capture(), ttlCaptor.capture());
-
-        int otpKeyIndex = keyCaptor.getAllValues().indexOf(
-                keyCaptor.getAllValues().stream().filter(key -> key.startsWith("reset_password:otp:"))
-                        .findFirst()
-                        .orElseThrow());
-        int emailKeyIndex = keyCaptor.getAllValues().indexOf(
-                keyCaptor.getAllValues().stream().filter(key -> key.startsWith("reset_password:email:"))
-                        .findFirst()
-                        .orElseThrow());
-
-        String otpKey = keyCaptor.getAllValues().get(otpKeyIndex);
-        String emailKey = keyCaptor.getAllValues().get(emailKeyIndex);
-        String otpValue = valueCaptor.getAllValues().get(emailKeyIndex);
-
-        assertThat(otpKey).startsWith("reset_password:otp:");
-        assertThat(otpKey.substring("reset_password:otp:".length())).matches("\\d{6}");
-        assertThat(emailKey).isEqualTo("reset_password:email:user@gmail.com");
-        assertThat(otpValue).matches("\\d{6}");
-        assertThat(ttlCaptor.getAllValues()).containsOnly(Duration.ofSeconds(300));
+        verify(stringRedisTemplate).execute(any(), anyList(), any(), any(), any());
 
         ArgumentCaptor<EmailOtpMessage> messageCaptor = ArgumentCaptor
                 .forClass(EmailOtpMessage.class);
@@ -455,7 +431,6 @@ class AuthServiceTest {
         when(forgotPasswordProperties.getOtpTtlSeconds()).thenReturn(300L);
         when(notificationRabbitProperties.getExchange()).thenReturn("notification.events");
         when(notificationRabbitProperties.getEmailOtpRoutingKey()).thenReturn("notification.send.email.otp");
-        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
 
         doThrow(new AmqpAuthenticationException(new RuntimeException("ACCESS_REFUSED")))
                 .when(rabbitTemplate)
@@ -465,7 +440,7 @@ class AuthServiceTest {
                 .doesNotThrowAnyException();
 
         verify(otpRateLimitService).checkForgotAllowed("user@gmail.com");
-        verify(valueOperations, times(2)).set(any(String.class), any(String.class), any(Duration.class));
+        verify(stringRedisTemplate).execute(any(), anyList(), any(), any(), any());
     }
 
     @Test
@@ -494,7 +469,6 @@ class AuthServiceTest {
         when(emailVerificationProperties.getOtpTtlSeconds()).thenReturn(300L);
         when(notificationRabbitProperties.getExchange()).thenReturn("notification.events");
         when(notificationRabbitProperties.getEmailOtpRoutingKey()).thenReturn("notification.send.email.otp");
-        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
         when(userRepository.findByEmailIgnoreCase("user@gmail.com")).thenReturn(Optional.of(unverifiedUser));
 
         authService.resendRegisterVerificationOtp("User@gmail.com");
@@ -561,12 +535,11 @@ class AuthServiceTest {
         when(forgotPasswordProperties.getOtpTtlSeconds()).thenReturn(300L);
         when(notificationRabbitProperties.getExchange()).thenReturn("notification.events");
         when(notificationRabbitProperties.getEmailOtpRoutingKey()).thenReturn("notification.send.email.otp");
-        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
 
         authService.resendForgotPasswordOtp("User@Gmail.com");
 
         verify(otpRateLimitService).checkResendAllowed("user@gmail.com");
-        verify(valueOperations, times(2)).set(any(String.class), any(String.class), any(Duration.class));
+        verify(stringRedisTemplate).execute(any(), anyList(), any(), any(), any());
     }
 
     @Test

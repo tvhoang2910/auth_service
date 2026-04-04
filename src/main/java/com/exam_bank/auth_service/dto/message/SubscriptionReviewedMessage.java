@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 
 public record SubscriptionReviewedMessage(
         Long subscriptionId,
+        Long subscriberUserId,
         String userEmail,
         String userFullName,
         String planName,

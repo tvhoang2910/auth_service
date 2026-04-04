@@ -3,6 +3,7 @@ package com.exam_bank.auth_service.service;
 import com.exam_bank.auth_service.config.properties.NotificationRabbitProperties;
 import com.exam_bank.auth_service.dto.request.ReviewSubscriptionRequest;
 import com.exam_bank.auth_service.dto.response.UserSubscriptionQueueItemResponse;
+import com.exam_bank.auth_service.dto.message.SubscriptionReviewedMessage;
 import com.exam_bank.auth_service.entity.PremiumPlan;
 import com.exam_bank.auth_service.entity.Role;
 import com.exam_bank.auth_service.entity.SubscriptionStatus;
@@ -129,6 +130,11 @@ class SubscriptionRequestServiceTest {
         when(userSubscriptionRepository.save(any(UserSubscription.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         when(subscriptionApprovalAuditRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(notificationRabbitProperties.getExchange()).thenReturn("notification.events");
+        when(notificationRabbitProperties.getEmailSubscriptionReviewedRoutingKey())
+                .thenReturn("notification.send.email.subscription-reviewed");
+        when(notificationRabbitProperties.getWebPushSubscriptionReviewedRoutingKey())
+                .thenReturn("notification.send.webpush.subscription-reviewed");
 
         UserSubscriptionQueueItemResponse response = subscriptionRequestService.reviewRequest(
                 1000L,
@@ -138,5 +144,13 @@ class SubscriptionRequestServiceTest {
         assertThat(response.status()).isEqualTo(SubscriptionStatus.APPROVED);
         assertThat(pendingSubscription.getStatus()).isEqualTo(SubscriptionStatus.APPROVED);
         verify(userSubscriptionRepository).save(pendingSubscription);
+        verify(rabbitTemplate).convertAndSend(
+                eq("notification.events"),
+                eq("notification.send.email.subscription-reviewed"),
+                any(SubscriptionReviewedMessage.class));
+        verify(rabbitTemplate).convertAndSend(
+                eq("notification.events"),
+                eq("notification.send.webpush.subscription-reviewed"),
+                any(SubscriptionReviewedMessage.class));
     }
 }

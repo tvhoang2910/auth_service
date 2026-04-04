@@ -13,8 +13,11 @@ import com.exam_bank.auth_service.dto.response.AuthTokenResponse;
 import com.exam_bank.auth_service.dto.response.RegisterResponse;
 import com.exam_bank.auth_service.dto.response.ResetPasswordTokenResponse;
 import com.exam_bank.auth_service.dto.response.UserProfileResponse;
+import com.exam_bank.auth_service.repository.UserRepository;
 import com.exam_bank.auth_service.service.AuthService;
 import com.exam_bank.auth_service.service.OAuth2LoginExchangeService;
+import com.exam_bank.auth_service.security.JwtService;
+import com.exam_bank.auth_service.service.PresenceService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,6 +48,9 @@ public class AuthController {
 
     private final AuthService authService;
     private final OAuth2LoginExchangeService oauth2LoginExchangeService;
+    private final JwtService jwtService;
+    private final PresenceService presenceService;
+    private final UserRepository userRepository;
 
     @PostMapping("/register")
     public ResponseEntity<RegisterResponse> register(@Valid @RequestBody RegisterRequest request) {
@@ -73,6 +79,8 @@ public class AuthController {
     public ResponseEntity<AuthTokenResponse> login(@Valid @RequestBody LoginRequest request) {
         log.info("login: email={}", request.getEmail());
         AuthTokenResponse response = authService.login(request);
+        userRepository.findByEmailIgnoreCase(request.getEmail().trim().toLowerCase())
+                .ifPresent(user -> presenceService.onUserLogin(user.getId(), user.getRole().name()));
         return ResponseEntity.ok(response);
     }
 
@@ -82,6 +90,18 @@ public class AuthController {
         log.info("logout: authorizationHeaderPresent={}",
                 authorizationHeader != null && !authorizationHeader.isBlank());
         authService.logout(authorizationHeader);
+        // Emit LEAVE presence event — look up user from token email before blacklisting
+        String token = authorizationHeader != null && authorizationHeader.startsWith("Bearer ")
+                ? authorizationHeader.substring(7).trim() : null;
+        if (token != null) {
+            try {
+                String email = jwtService.extractSubject(token);
+                userRepository.findByEmailIgnoreCase(email)
+                        .ifPresent(user -> presenceService.onUserLogout(user.getId(), user.getRole().name()));
+            } catch (Exception e) {
+                log.warn("logout: could not extract subject for presence: {}", e.getMessage());
+            }
+        }
         return ResponseEntity.ok(Map.of(MESSAGE_KEY, "Logged out successfully"));
     }
 

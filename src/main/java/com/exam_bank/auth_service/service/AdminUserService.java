@@ -41,6 +41,7 @@ public class AdminUserService {
 
     private static final int USER_STATUS_BANNED = 0;
     private static final int USER_STATUS_ACTIVE = 1;
+    private static final int MAX_IMPORT_BATCH_SIZE = 1000;
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -144,6 +145,11 @@ public class AdminUserService {
     public AdminImportUsersResponse importUsers(AdminImportUsersRequest request) {
         if (request == null || request.users() == null || request.users().isEmpty()) {
             throw new IllegalArgumentException("users payload is required");
+        }
+
+        if (request.users().size() > MAX_IMPORT_BATCH_SIZE) {
+            throw new IllegalArgumentException(
+                    "Batch size exceeds maximum allowed (" + MAX_IMPORT_BATCH_SIZE + ")");
         }
 
         boolean skipExisting = request.skipExisting() == null || request.skipExisting();

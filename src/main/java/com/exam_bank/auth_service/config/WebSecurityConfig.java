@@ -86,9 +86,13 @@ public class WebSecurityConfig {
                                 "/forgot-password/resend",
                                 "/forgot-password/verify-otp",
                                 "/reset-password",
+                                "/push-subscription/vapid-public-key",
+                                "/push-subscription/user/**",
+                                "/push-subscription/role/**",
                                 "/actuator/health",
                                 "/actuator/health/**",
                                 "/oauth2/**",
+                                "/sse/**",
                                 "/error")
                         .permitAll()
                         .requestMatchers("/admin/**").hasRole("ADMIN")

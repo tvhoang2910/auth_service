@@ -22,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -32,6 +33,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Duration;
 import java.security.SecureRandom;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -300,12 +302,11 @@ public class AuthService {
 
     private void issueForgotPasswordOtp(String normalizedEmail) {
         String otp = String.format("%06d", secureRandom.nextInt(1_000_000));
-        Duration ttl = Duration.ofSeconds(forgotPasswordProperties.getOtpTtlSeconds());
+        long ttlSeconds = forgotPasswordProperties.getOtpTtlSeconds();
 
         String otpKey = otpKey(otp);
         String emailKey = emailOtpKey(normalizedEmail);
-        stringRedisTemplate.opsForValue().set(otpKey, normalizedEmail, ttl);
-        stringRedisTemplate.opsForValue().set(emailKey, otp, ttl);
+        executeOtpAtomicSet(otpKey, normalizedEmail, emailKey, otp, ttlSeconds);
 
         publishOtpMessage(normalizedEmail, otp, OTP_PURPOSE_FORGOT_PASSWORD, AUDIT_FORGOT_PASSWORD,
                 "otp-issued-and-published", "otp-issued-but-rabbit-publish-failed");
@@ -318,15 +319,30 @@ public class AuthService {
         }
 
         String otp = String.format("%06d", secureRandom.nextInt(1_000_000));
-        Duration ttl = Duration.ofSeconds(emailVerificationProperties.getOtpTtlSeconds());
+        long ttlSeconds = emailVerificationProperties.getOtpTtlSeconds();
 
         String otpKey = registerVerificationOtpKey(otp);
         String emailKey = registerVerificationEmailOtpKey(normalizedEmail);
-        stringRedisTemplate.opsForValue().set(otpKey, normalizedEmail, ttl);
-        stringRedisTemplate.opsForValue().set(emailKey, otp, ttl);
+        executeOtpAtomicSet(otpKey, normalizedEmail, emailKey, otp, ttlSeconds);
 
         publishOtpMessage(normalizedEmail, otp, OTP_PURPOSE_EMAIL_VERIFICATION, AUDIT_EMAIL_VERIFICATION,
                 "otp-issued-and-published", "otp-issued-but-rabbit-publish-failed");
+    }
+
+    /**
+     * Atomically sets both OTP→email and email→OTP keys using a Lua script
+     * to guarantee consistency even if Redis fails mid-operation.
+     */
+    private void executeOtpAtomicSet(String otpKey, String otpValue,
+            String emailKey, String emailValue, long ttlSeconds) {
+        String luaScript =
+                "redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3]) " +
+                "redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3]) " +
+                "return 1";
+        RedisScript<Long> script = RedisScript.of(luaScript, Long.class);
+        stringRedisTemplate.execute(script,
+                List.of(otpKey, emailKey),
+                otpValue, emailValue, String.valueOf(ttlSeconds));
     }
 
     private void publishOtpMessage(
