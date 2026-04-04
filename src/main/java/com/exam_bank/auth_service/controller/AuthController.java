@@ -92,7 +92,8 @@ public class AuthController {
         authService.logout(authorizationHeader);
         // Emit LEAVE presence event — look up user from token email before blacklisting
         String token = authorizationHeader != null && authorizationHeader.startsWith("Bearer ")
-                ? authorizationHeader.substring(7).trim() : null;
+                ? authorizationHeader.substring(7).trim()
+                : null;
         if (token != null) {
             try {
                 String email = jwtService.extractSubject(token);

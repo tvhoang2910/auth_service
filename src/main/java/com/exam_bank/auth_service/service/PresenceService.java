@@ -104,28 +104,48 @@ public class PresenceService implements MessageListener {
     }
 
     public void onUserLogin(Long userId, String role) {
-        String key = "presence:user:" + userId;
-        redisTemplate.opsForValue().set(key, role, Duration.ofSeconds(60));
-        Long count = redisTemplate.opsForValue().increment("presence:count:" + role);
-        int onlineCount = count != null ? count.intValue() : 1;
-        publishPresenceEvent(UserPresenceEvent.join(userId, role, onlineCount));
+        try {
+            String key = "presence:user:" + userId;
+            redisTemplate.opsForValue().set(key, role, Duration.ofSeconds(60));
+            Long count = redisTemplate.opsForValue().increment("presence:count:" + role);
+            int onlineCount = count != null ? count.intValue() : 1;
+            publishPresenceEvent(UserPresenceEvent.join(userId, role, onlineCount));
+        } catch (Exception ex) {
+            log.warn("Presence login update skipped for userId={}, role={} due to Redis issue: {}", userId, role,
+                    ex.getMessage());
+        }
     }
 
     public void onUserLogout(Long userId, String role) {
-        String key = "presence:user:" + userId;
-        redisTemplate.delete(key);
-        Long count = redisTemplate.opsForValue().decrement("presence:count:" + role);
-        int onlineCount = count != null ? Math.max(0, count.intValue()) : 0;
-        publishPresenceEvent(UserPresenceEvent.leave(userId, role, onlineCount));
+        try {
+            String key = "presence:user:" + userId;
+            redisTemplate.delete(key);
+            Long count = redisTemplate.opsForValue().decrement("presence:count:" + role);
+            int onlineCount = count != null ? Math.max(0, count.intValue()) : 0;
+            publishPresenceEvent(UserPresenceEvent.leave(userId, role, onlineCount));
+        } catch (Exception ex) {
+            log.warn("Presence logout update skipped for userId={}, role={} due to Redis issue: {}", userId, role,
+                    ex.getMessage());
+        }
     }
 
     public void heartbeat(Long userId, String role) {
-        String key = "presence:user:" + userId;
-        redisTemplate.expire(key, Duration.ofSeconds(60));
+        try {
+            String key = "presence:user:" + userId;
+            redisTemplate.expire(key, Duration.ofSeconds(60));
+        } catch (Exception ex) {
+            log.warn("Presence heartbeat skipped for userId={}, role={} due to Redis issue: {}", userId, role,
+                    ex.getMessage());
+        }
     }
 
     public int getOnlineCount(String role) {
-        String val = redisTemplate.opsForValue().get("presence:count:" + role);
-        return val == null ? 0 : Integer.parseInt(val);
+        try {
+            String val = redisTemplate.opsForValue().get("presence:count:" + role);
+            return val == null ? 0 : Integer.parseInt(val);
+        } catch (Exception ex) {
+            log.warn("Presence online count fallback for role={} due to Redis issue: {}", role, ex.getMessage());
+            return 0;
+        }
     }
 }

@@ -113,7 +113,7 @@ public class AuthService {
                 .build();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public AuthTokenResponse login(LoginRequest request) {
         String normalizedEmail = request.getEmail().trim().toLowerCase();
         if (loginAttemptService.isBlocked(normalizedEmail)) {
@@ -335,8 +335,7 @@ public class AuthService {
      */
     private void executeOtpAtomicSet(String otpKey, String otpValue,
             String emailKey, String emailValue, long ttlSeconds) {
-        String luaScript =
-                "redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3]) " +
+        String luaScript = "redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3]) " +
                 "redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3]) " +
                 "return 1";
         RedisScript<Long> script = RedisScript.of(luaScript, Long.class);
@@ -370,7 +369,7 @@ public class AuthService {
         stringRedisTemplate.delete(registerVerificationOtpKey(otp));
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public String verifyForgotPasswordOtp(String email, String otp) {
         String normalizedEmail = email.trim().toLowerCase();
         String normalizedOtp = otp.trim();
@@ -686,7 +685,7 @@ public class AuthService {
         return java.util.Objects.equals(first, second);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public void logout(String authorizationHeader) {
         String token = extractBearerToken(authorizationHeader);
         tokenBlacklistService.blacklist(token, jwtService.extractExpiration(token));

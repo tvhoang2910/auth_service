@@ -1,5 +1,6 @@
 package com.exam_bank.auth_service.exception;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.AuthenticationException;
@@ -15,6 +16,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @RestControllerAdvice
+@Slf4j
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BruteForceBlockedException.class)
@@ -62,6 +64,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageConversionException.class)
     public ResponseEntity<Map<String, Object>> handleHttpMessageConversion(HttpMessageConversionException exception) {
         return buildResponse(HttpStatus.BAD_REQUEST, "Malformed JSON request body");
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Map<String, Object>> handleUnexpected(Exception exception) {
+        log.error("Unhandled exception: type={}, message={}", exception.getClass().getSimpleName(),
+                exception.getMessage());
+        return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected server error");
     }
 
     private ResponseEntity<Map<String, Object>> buildResponse(HttpStatus status, String message) {
