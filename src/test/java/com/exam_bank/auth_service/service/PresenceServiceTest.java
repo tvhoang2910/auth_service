@@ -161,7 +161,7 @@ class PresenceServiceTest {
             presenceService.heartbeat(42L, "ADMIN");
 
             ArgumentCaptor<Duration> durationCaptor = ArgumentCaptor.forClass(Duration.class);
-            verify(redisTemplate).expire("presence:user:42", durationCaptor.capture());
+            verify(redisTemplate).expire(eq("presence:user:42"), durationCaptor.capture());
             assertThat(durationCaptor.getValue()).isEqualTo(Duration.ofSeconds(60));
         }
     }

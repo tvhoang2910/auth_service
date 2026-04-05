@@ -1,5 +1,6 @@
 package com.exam_bank.auth_service.controller;
 
+import com.exam_bank.auth_service.dto.response.AuditLogPageResponse;
 import com.exam_bank.auth_service.entity.SecurityAuditLog;
 import com.exam_bank.auth_service.service.AuditLogService;
 import lombok.RequiredArgsConstructor;
@@ -31,7 +32,7 @@ public class AuditLogController {
     private final AuditLogService auditLogService;
 
     @GetMapping
-    public ResponseEntity<Page<SecurityAuditLog>> getAuditLogs(
+    public ResponseEntity<AuditLogPageResponse> getAuditLogs(
             @RequestParam(required = false) String email,
             @RequestParam(required = false) String action,
             @RequestParam(required = false) String outcome,
@@ -48,7 +49,7 @@ public class AuditLogController {
         }
 
         Page<SecurityAuditLog> result = auditLogService.search(email, action, outcome, from, to, pageable);
-        return ResponseEntity.ok(result);
+        return ResponseEntity.ok(AuditLogPageResponse.from(result));
     }
 
     @GetMapping("/stats")
