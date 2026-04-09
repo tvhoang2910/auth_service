@@ -91,6 +91,7 @@ public class WebSecurityConfig {
                                 "/push-subscription/vapid-public-key",
                                 "/push-subscription/user/**",
                                 "/push-subscription/role/**",
+                                "/internal/users/**",
                                 "/actuator/health",
                                 "/actuator/health/**",
                                 "/oauth2/**",

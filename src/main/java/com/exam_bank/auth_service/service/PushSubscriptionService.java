@@ -20,19 +20,20 @@ public class PushSubscriptionService {
     private final UserPushSubscriptionRepository repository;
 
     /**
-     * Upsert: if endpoint already exists for this user, update it.
-     * Otherwise create new subscription.
+     * Upsert by endpoint: endpoint is globally unique.
+     * If endpoint already exists, it is rebound to the current user.
      */
     @Transactional
     public PushSubscriptionResponse subscribe(Long userId, PushSubscriptionRequest request) {
-        UserPushSubscription sub = repository.findByUserIdAndEndpoint(userId, request.endpoint())
+        UserPushSubscription sub = repository.findByEndpoint(request.endpoint())
                 .orElseGet(() -> {
                     UserPushSubscription n = new UserPushSubscription();
-                    n.setUserId(userId);
                     n.setEndpoint(request.endpoint());
-                    n.setActive(true);
                     return n;
                 });
+        // Endpoint is globally unique in DB. Rebind it to current user if needed.
+        sub.setUserId(userId);
+        sub.setActive(true);
         sub.setP256dh(request.p256dh());
         sub.setAuth(request.auth());
         UserPushSubscription saved = repository.save(sub);
