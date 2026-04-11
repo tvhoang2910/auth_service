@@ -91,6 +91,7 @@ public class AuditLogService {
         labels.put("VERIFY_EMAIL", "Xác minh email đăng ký");
         labels.put("UPDATE_PROFILE", "Cập nhật hồ sơ");
         labels.put("UPLOAD_AVATAR", "Upload avatar");
+        labels.put("CANCEL_SUBSCRIPTION", "Hủy gói Premium");
 
         for (String action : auditLogRepository.findDistinctActions()) {
             labels.putIfAbsent(action, action);

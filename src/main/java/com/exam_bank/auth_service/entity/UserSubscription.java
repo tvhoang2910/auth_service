@@ -56,6 +56,18 @@ public class UserSubscription extends BaseEntity {
     @Column(name = "status", nullable = false, length = 50)
     private SubscriptionStatus status;
 
+    @Column(name = "cancellation_reason", length = 500)
+    private String cancellationReason;
+
+    @Column(name = "cancelled_by_email", length = 255)
+    private String cancelledByEmail;
+
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
+
+    @Column(name = "refunded_amount", precision = 12, scale = 2)
+    private BigDecimal refundedAmount;
+
     @Column(name = "bill_image_url", length = 255)
     private String billImageUrl;
 

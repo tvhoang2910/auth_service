@@ -1,12 +1,14 @@
 package com.exam_bank.auth_service.service;
 
 import com.exam_bank.auth_service.config.properties.MinioProperties;
+import com.exam_bank.auth_service.exception.StorageUnavailableException;
 import io.minio.BucketExistsArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.SetBucketPolicyArgs;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -18,6 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PaymentBillStorageService {
 
     private static final long MAX_BILL_SIZE_BYTES = 10L * 1024 * 1024;
@@ -41,18 +44,31 @@ public class PaymentBillStorageService {
         }
 
         String objectKey = buildBillObjectKey(userId, file.getOriginalFilename());
+        String bucketName = minioProperties.getBucketName();
+        String endpoint = minioProperties.getUrl();
         ensureBucketExists();
 
         try (InputStream inputStream = file.getInputStream()) {
             minioClient.putObject(PutObjectArgs.builder()
-                    .bucket(minioProperties.getBucketName())
+                    .bucket(bucketName)
                     .object(objectKey)
                     .stream(inputStream, file.getSize(), -1)
                     .contentType(contentType)
                     .build());
             return buildFileUrl(objectKey);
         } catch (Exception exception) {
-            throw new IllegalStateException("Failed to upload bill image", exception);
+            log.error(
+                    "Failed to upload bill image to MinIO: userId={}, bucket={}, endpoint={}, objectKey={}, contentType={}, size={}B, fileName={}, cause={}",
+                    userId,
+                    bucketName,
+                    endpoint,
+                    objectKey,
+                    contentType,
+                    file.getSize(),
+                    file.getOriginalFilename(),
+                    exception.getMessage(),
+                    exception);
+            throw new StorageUnavailableException("File storage is temporarily unavailable", exception);
         }
     }
 
@@ -83,7 +99,12 @@ public class PaymentBillStorageService {
 
                 bucketInitialized.set(true);
             } catch (Exception exception) {
-                throw new IllegalStateException("Failed to initialize MinIO bucket", exception);
+                log.error("Failed to initialize MinIO bucket: bucket={}, endpoint={}, cause={}",
+                        minioProperties.getBucketName(),
+                        minioProperties.getUrl(),
+                        exception.getMessage(),
+                        exception);
+                throw new StorageUnavailableException("File storage is temporarily unavailable", exception);
             }
         }
     }

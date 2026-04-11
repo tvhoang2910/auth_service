@@ -66,10 +66,15 @@ public class GlobalExceptionHandler {
         return buildResponse(HttpStatus.BAD_REQUEST, "Malformed JSON request body");
     }
 
+    @ExceptionHandler(StorageUnavailableException.class)
+    public ResponseEntity<Map<String, Object>> handleStorageUnavailable(StorageUnavailableException exception) {
+        return buildResponse(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleUnexpected(Exception exception) {
         log.error("Unhandled exception: type={}, message={}", exception.getClass().getSimpleName(),
-                exception.getMessage());
+                exception.getMessage(), exception);
         return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected server error");
     }
 

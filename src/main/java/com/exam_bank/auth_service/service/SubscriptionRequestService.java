@@ -3,10 +3,15 @@ package com.exam_bank.auth_service.service;
 import com.exam_bank.auth_service.config.properties.NotificationRabbitProperties;
 import com.exam_bank.auth_service.dto.message.SubscriptionReviewRequestedMessage;
 import com.exam_bank.auth_service.dto.message.SubscriptionReviewedMessage;
+import com.exam_bank.auth_service.dto.request.CancelSubscriptionRequest;
 import com.exam_bank.auth_service.dto.request.CreatePremiumPlanRequest;
 import com.exam_bank.auth_service.dto.request.ReviewSubscriptionRequest;
+import com.exam_bank.auth_service.dto.response.CancelSubscriptionResponse;
 import com.exam_bank.auth_service.dto.response.PremiumPlanSummaryResponse;
+import com.exam_bank.auth_service.dto.response.SubscriptionAnalyticsOverviewResponse;
 import com.exam_bank.auth_service.dto.response.SubscriptionApprovalAuditResponse;
+import com.exam_bank.auth_service.dto.response.SubscriptionHistoryItemResponse;
+import com.exam_bank.auth_service.dto.response.SubscriptionHistoryPageResponse;
 import com.exam_bank.auth_service.dto.response.UserSubscriptionQueueItemResponse;
 import com.exam_bank.auth_service.entity.PremiumPlan;
 import com.exam_bank.auth_service.entity.Role;
@@ -23,16 +28,21 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.http.HttpStatus;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.YearMonth;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.EnumSet;
 import java.util.List;
@@ -47,6 +57,8 @@ import static org.springframework.util.StringUtils.hasText;
 public class SubscriptionRequestService {
 
     private static final long LIFETIME_DAYS = 36500L;
+    private static final String SECURITY_AUDIT_CANCEL_ACTION = "CANCEL_SUBSCRIPTION";
+    private static final BigDecimal ZERO_MONEY = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
     private static final Set<SubscriptionStatus> BLOCKING_DUPLICATE_STATUSES = EnumSet.of(
             SubscriptionStatus.PENDING_REVIEW,
             SubscriptionStatus.APPROVED);
@@ -57,8 +69,10 @@ public class SubscriptionRequestService {
     private final SubscriptionApprovalAuditRepository subscriptionApprovalAuditRepository;
     private final PaymentBillStorageService paymentBillStorageService;
     private final UserProfileCacheService userProfileCacheService;
+    private final SecurityAuditService securityAuditService;
     private final RabbitTemplate rabbitTemplate;
     private final NotificationRabbitProperties notificationRabbitProperties;
+    private final AuthUserProfileEventPublisher authUserProfileEventPublisher;
 
     @Transactional(readOnly = true)
     public List<PremiumPlanSummaryResponse> getActivePlans() {
@@ -81,25 +95,25 @@ public class SubscriptionRequestService {
         return plans;
     }
 
-        @Transactional(readOnly = true)
-        public List<PremiumPlanSummaryResponse> getPlansForManagement(String actorEmail, String search, Boolean active) {
+    @Transactional(readOnly = true)
+    public List<PremiumPlanSummaryResponse> getPlansForManagement(String actorEmail, String search, Boolean active) {
         User actor = validateAdminPlanManagerRole(actorEmail);
         String normalizedSearch = normalizeOptionalText(search);
 
         List<PremiumPlanSummaryResponse> plans = premiumPlanRepository.findAllByOrderByCreatedAtDesc()
-            .stream()
-            .filter(plan -> active == null || plan.isActive() == active)
-            .filter(plan -> matchesSearchKeyword(plan, normalizedSearch))
-            .map(this::mapPlan)
-            .toList();
+                .stream()
+                .filter(plan -> active == null || plan.isActive() == active)
+                .filter(plan -> matchesSearchKeyword(plan, normalizedSearch))
+                .map(this::mapPlan)
+                .toList();
 
         log.info("Actor {} loaded {} plans for management with search={} active={}",
-            actor.getEmail(),
-            plans.size(),
-            normalizedSearch,
-            active);
+                actor.getEmail(),
+                plans.size(),
+                normalizedSearch,
+                active);
         return plans;
-        }
+    }
 
     @Transactional
     public PremiumPlanSummaryResponse createPremiumPlan(String actorEmail, CreatePremiumPlanRequest request) {
@@ -112,7 +126,7 @@ public class SubscriptionRequestService {
 
         log.info("Actor {} creating premium plan name={} lifetime={} active={}",
                 actor.getEmail(),
-            normalizedName,
+                normalizedName,
                 Boolean.TRUE.equals(request.lifetime()),
                 request.active() == null || request.active());
 
@@ -130,7 +144,8 @@ public class SubscriptionRequestService {
     }
 
     @Transactional
-    public PremiumPlanSummaryResponse updatePremiumPlan(Long planId, String actorEmail, CreatePremiumPlanRequest request) {
+    public PremiumPlanSummaryResponse updatePremiumPlan(Long planId, String actorEmail,
+            CreatePremiumPlanRequest request) {
         User actor = validateAdminPlanManagerRole(actorEmail);
         PremiumPlan plan = premiumPlanRepository.findById(planId)
                 .orElseThrow(() -> new IllegalArgumentException("Premium plan not found"));
@@ -162,7 +177,8 @@ public class SubscriptionRequestService {
             log.warn("Actor {} attempted to delete premium plan id={} that already has subscriptions",
                     actor.getEmail(),
                     planId);
-            throw new IllegalArgumentException("Cannot delete plan that already has subscriptions; set it inactive instead");
+            throw new IllegalArgumentException(
+                    "Cannot delete plan that already has subscriptions; set it inactive instead");
         }
 
         premiumPlanRepository.delete(plan);
@@ -281,6 +297,9 @@ public class SubscriptionRequestService {
         subscription.setEndDate(resolveEndDate(subscription.getPlan(), reviewedAt));
         UserSubscription savedSubscription = userSubscriptionRepository.save(subscription);
         userProfileCacheService.evict(savedSubscription.getUser().getId(), savedSubscription.getUser().getEmail());
+        authUserProfileEventPublisher.publish(
+                savedSubscription.getUser(),
+                isUserPremiumActive(savedSubscription.getUser().getId()));
 
         SubscriptionApprovalAudit audit = new SubscriptionApprovalAudit();
         audit.setSubscription(savedSubscription);
@@ -322,6 +341,192 @@ public class SubscriptionRequestService {
         return audits;
     }
 
+    @Transactional(readOnly = true)
+    public SubscriptionHistoryPageResponse getSubscriptionHistory(
+            String actorEmail,
+            String search,
+            SubscriptionStatus status,
+            Instant fromDate,
+            Instant toDate,
+            Pageable pageable) {
+        User actor = validateAdminPlanManagerRole(actorEmail);
+        String normalizedSearch = normalizeOptionalText(search);
+
+        if (fromDate != null && toDate != null && fromDate.isAfter(toDate)) {
+            throw new IllegalArgumentException("from must be before or equal to to");
+        }
+
+        boolean useSearch = hasText(normalizedSearch);
+        boolean useStatus = status != null;
+        boolean useFromDate = fromDate != null;
+        boolean useToDate = toDate != null;
+
+        Page<UserSubscription> page = userSubscriptionRepository.searchHistory(
+                useSearch,
+                useSearch ? normalizedSearch : "",
+                useStatus,
+                useStatus ? status : SubscriptionStatus.PENDING_REVIEW,
+                useFromDate,
+                useFromDate ? fromDate : Instant.EPOCH,
+                useToDate,
+                useToDate ? toDate : Instant.EPOCH,
+                pageable);
+
+        List<SubscriptionHistoryItemResponse> content = page.getContent().stream()
+                .map(this::mapSubscriptionHistory)
+                .toList();
+
+        log.info(
+                "Actor {} loaded subscription history totalElements={} page={} size={} search={} status={} from={} to={}",
+                actor.getEmail(),
+                page.getTotalElements(),
+                page.getNumber(),
+                page.getSize(),
+                normalizedSearch,
+                status,
+                fromDate,
+                toDate);
+
+        return new SubscriptionHistoryPageResponse(
+                content,
+                page.getNumber(),
+                page.getSize(),
+                page.getTotalElements(),
+                page.getTotalPages(),
+                page.isFirst(),
+                page.isLast());
+    }
+
+    @Transactional
+    public CancelSubscriptionResponse cancelSubscription(
+            Long subscriptionId,
+            String actorEmail,
+            CancelSubscriptionRequest request) {
+        User actor = validateAdminPlanManagerRole(actorEmail);
+        String reason = normalizeOptionalText(request.reason());
+
+        if (!hasText(reason)) {
+            securityAuditService.failure(
+                    SECURITY_AUDIT_CANCEL_ACTION,
+                    actor.getEmail(),
+                    buildCancellationFailureDetails(subscriptionId, null, "Missing cancellation reason"));
+            throw new IllegalArgumentException("Cancellation reason is required");
+        }
+
+        UserSubscription subscription = userSubscriptionRepository.findById(subscriptionId)
+                .orElseThrow(() -> {
+                    securityAuditService.failure(
+                            SECURITY_AUDIT_CANCEL_ACTION,
+                            actor.getEmail(),
+                            buildCancellationFailureDetails(subscriptionId, null, "Subscription not found"));
+                    return new IllegalArgumentException("Subscription not found");
+                });
+
+        SubscriptionStatus previousStatus = subscription.getStatus();
+        if (previousStatus != SubscriptionStatus.APPROVED) {
+            securityAuditService.failure(
+                    SECURITY_AUDIT_CANCEL_ACTION,
+                    actor.getEmail(),
+                    buildCancellationFailureDetails(
+                            subscriptionId,
+                            previousStatus,
+                            "Only APPROVED subscriptions can be cancelled"));
+            throw new IllegalArgumentException("Only approved subscriptions can be cancelled");
+        }
+
+        Instant cancelledAt = Instant.now();
+        if (!subscription.getEndDate().isAfter(cancelledAt)) {
+            securityAuditService.failure(
+                    SECURITY_AUDIT_CANCEL_ACTION,
+                    actor.getEmail(),
+                    buildCancellationFailureDetails(subscriptionId, previousStatus, "Subscription already expired"));
+            throw new IllegalArgumentException("Only active subscriptions can be cancelled");
+        }
+
+        RefundOutcome refundOutcome = calculateRefundOutcome(subscription, cancelledAt);
+
+        subscription.setStatus(SubscriptionStatus.CANCELLED);
+        subscription.setCancellationReason(reason);
+        subscription.setCancelledByEmail(actor.getEmail());
+        subscription.setCancelledAt(cancelledAt);
+        subscription.setRefundedAmount(refundOutcome.refundAmount());
+        subscription.setEndDate(cancelledAt);
+
+        UserSubscription savedSubscription = userSubscriptionRepository.save(subscription);
+        userProfileCacheService.evict(savedSubscription.getUser().getId(), savedSubscription.getUser().getEmail());
+        authUserProfileEventPublisher.publish(
+                savedSubscription.getUser(),
+                isUserPremiumActive(savedSubscription.getUser().getId()));
+
+        securityAuditService.success(
+                SECURITY_AUDIT_CANCEL_ACTION,
+                actor.getEmail(),
+                buildCancellationSuccessDetails(savedSubscription, refundOutcome));
+
+        log.info(
+                "Actor {} cancelled subscriptionId={} previousStatus={} refundPolicy={} refundRate={} refundAmount={}",
+                actor.getEmail(),
+                savedSubscription.getId(),
+                previousStatus,
+                refundOutcome.policy(),
+                refundOutcome.refundRate(),
+                refundOutcome.refundAmount());
+
+        return new CancelSubscriptionResponse(
+                savedSubscription.getId(),
+                previousStatus,
+                savedSubscription.getStatus(),
+                reason,
+                refundOutcome.policy(),
+                refundOutcome.refundRate(),
+                refundOutcome.refundAmount(),
+                cancelledAt);
+    }
+
+    @Transactional(readOnly = true)
+    public SubscriptionAnalyticsOverviewResponse getSubscriptionAnalyticsOverview(String actorEmail) {
+        User actor = validateAdminPlanManagerRole(actorEmail);
+        Instant now = Instant.now();
+
+        YearMonth currentMonth = YearMonth.now(ZoneOffset.UTC);
+        Instant fromDate = currentMonth.atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant toDate = currentMonth.plusMonths(1)
+                .atDay(1)
+                .atStartOfDay(ZoneOffset.UTC)
+                .toInstant()
+                .minusNanos(1);
+
+        BigDecimal monthlyRevenue = userSubscriptionRepository.sumPurchasedPriceByStatusAndStartDateBetween(
+                SubscriptionStatus.APPROVED,
+                fromDate,
+                toDate);
+        long activePremiumCount = userSubscriptionRepository.countActiveByStatus(SubscriptionStatus.APPROVED, now);
+
+        var topPlans = userSubscriptionRepository.findPlanSubscriptionStatsByStatus(
+                SubscriptionStatus.APPROVED,
+                PageRequest.of(0, 1));
+        String topPlanName = topPlans.isEmpty() ? null : topPlans.getFirst().getPlanName();
+        long topPlanSubscriptions = topPlans.isEmpty() ? 0L : topPlans.getFirst().getSubscriptionCount();
+
+        BigDecimal normalizedMonthlyRevenue = (monthlyRevenue == null ? ZERO_MONEY : monthlyRevenue)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        log.info(
+                "Actor {} loaded subscription analytics monthlyRevenue={} activePremiumCount={} topPlanName={} topPlanSubscriptions={}",
+                actor.getEmail(),
+                normalizedMonthlyRevenue,
+                activePremiumCount,
+                topPlanName,
+                topPlanSubscriptions);
+
+        return new SubscriptionAnalyticsOverviewResponse(
+                normalizedMonthlyRevenue,
+                activePremiumCount,
+                topPlanName,
+                topPlanSubscriptions,
+                now);
+    }
+
     private PremiumPlanSummaryResponse mapPlan(PremiumPlan plan) {
         return new PremiumPlanSummaryResponse(
                 plan.getId(),
@@ -351,6 +556,30 @@ public class SubscriptionRequestService {
                 subscription.getStartDate(),
                 subscription.getEndDate(),
                 subscription.getCreatedAt());
+    }
+
+    private SubscriptionHistoryItemResponse mapSubscriptionHistory(UserSubscription subscription) {
+        return new SubscriptionHistoryItemResponse(
+                subscription.getId(),
+                subscription.getUser().getId(),
+                subscription.getUser().getEmail(),
+                subscription.getUser().getFullName(),
+                subscription.getPlan().getId(),
+                subscription.getPlan().getName(),
+                subscription.getPurchasedPrice(),
+                subscription.getStatus(),
+                subscription.getBillImageUrl(),
+                subscription.getPaymentMethod(),
+                subscription.getTransactionRef(),
+                subscription.getPromoCode(),
+                subscription.isTrial(),
+                subscription.getStartDate(),
+                subscription.getEndDate(),
+                subscription.getCreatedAt(),
+                subscription.getCancellationReason(),
+                subscription.getCancelledByEmail(),
+                subscription.getCancelledAt(),
+                subscription.getRefundedAmount());
     }
 
     private SubscriptionApprovalAuditResponse mapAudit(SubscriptionApprovalAudit audit) {
@@ -445,6 +674,54 @@ public class SubscriptionRequestService {
         return requestedDurationDays;
     }
 
+    private RefundOutcome calculateRefundOutcome(UserSubscription subscription, Instant cancelledAt) {
+        if (subscription.getPlan().isLifetime()) {
+            return new RefundOutcome("NO_REFUND_LIFETIME", BigDecimal.ZERO, ZERO_MONEY);
+        }
+
+        Instant startDate = subscription.getStartDate();
+        Instant endDate = subscription.getEndDate();
+        if (startDate == null || endDate == null || !endDate.isAfter(startDate)) {
+            return new RefundOutcome("NO_REFUND", BigDecimal.ZERO, ZERO_MONEY);
+        }
+        long totalSeconds = Math.max(1L, Duration.between(startDate, endDate).getSeconds());
+        long remainingSeconds = Math.max(0L, Duration.between(cancelledAt, endDate).getSeconds());
+
+        BigDecimal refundRate = BigDecimal.valueOf(remainingSeconds)
+                .divide(BigDecimal.valueOf(totalSeconds), 4, RoundingMode.HALF_UP)
+                .max(BigDecimal.ZERO)
+                .min(BigDecimal.ONE);
+
+        BigDecimal refundAmount = subscription.getPurchasedPrice()
+                .multiply(refundRate)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        if (refundAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return new RefundOutcome("NO_REFUND", BigDecimal.ZERO, ZERO_MONEY);
+        }
+
+        return new RefundOutcome("PRORATED_BY_REMAINING_TIME", refundRate, refundAmount);
+    }
+
+    private String buildCancellationFailureDetails(
+            Long subscriptionId,
+            SubscriptionStatus currentStatus,
+            String reason) {
+        return "subscriptionId=" + subscriptionId
+                + ", currentStatus=" + (currentStatus == null ? "null" : currentStatus)
+                + ", reason=" + reason;
+    }
+
+    private String buildCancellationSuccessDetails(UserSubscription subscription, RefundOutcome refundOutcome) {
+        return "subscriptionId=" + subscription.getId()
+                + ", userEmail=" + subscription.getUser().getEmail()
+                + ", previousStatus=APPROVED"
+                + ", newStatus=" + subscription.getStatus()
+                + ", refundPolicy=" + refundOutcome.policy()
+                + ", refundRate=" + refundOutcome.refundRate()
+                + ", refundAmount=" + refundOutcome.refundAmount();
+    }
+
     private void ensureNoBlockingDuplicateRequest(User user, PremiumPlan plan) {
         boolean exists = userSubscriptionRepository.existsByUserAndPlanAndStatusIn(
                 user,
@@ -457,6 +734,19 @@ public class SubscriptionRequestService {
                     BLOCKING_DUPLICATE_STATUSES);
             throw new IllegalArgumentException("You already have a pending or approved request for this plan");
         }
+    }
+
+    private boolean isUserPremiumActive(Long userId) {
+        if (userId == null || userId <= 0) {
+            return false;
+        }
+
+        Instant now = Instant.now();
+        return userSubscriptionRepository.existsByUserIdAndStatusAndStartDateLessThanEqualAndEndDateAfter(
+                userId,
+                SubscriptionStatus.APPROVED,
+                now,
+                now);
     }
 
     private void publishReviewRequestedMessage(UserSubscription subscription) {
@@ -538,5 +828,8 @@ public class SubscriptionRequestService {
                     exception);
             return false;
         }
+    }
+
+    private record RefundOutcome(String policy, BigDecimal refundRate, BigDecimal refundAmount) {
     }
 }

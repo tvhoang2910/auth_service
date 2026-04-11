@@ -84,6 +84,7 @@ public class AuthService {
     private final OtpRateLimitService otpRateLimitService;
     private final SecurityAuditService securityAuditService;
     private final AvatarStorageService avatarStorageService;
+    private final AuthUserProfileEventPublisher authUserProfileEventPublisher;
 
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -108,6 +109,7 @@ public class AuthService {
         User savedUser = userRepository.save(user);
         issueRegisterVerificationOtp(savedUser.getEmail());
         evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
+        authUserProfileEventPublisher.publish(savedUser, false);
         return RegisterResponse.builder()
                 .id(savedUser.getId())
                 .email(savedUser.getEmail())
@@ -177,12 +179,14 @@ public class AuthService {
                         existingUser.setEmailVerified(true);
                         User savedUser = userRepository.save(existingUser);
                         evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
+                        authUserProfileEventPublisher.publish(savedUser, isPremiumActive(savedUser.getId()));
                         return savedUser;
                     }
                     if (!existingUser.isEmailVerified()) {
                         existingUser.setEmailVerified(true);
                         User savedUser = userRepository.save(existingUser);
                         evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
+                        authUserProfileEventPublisher.publish(savedUser, isPremiumActive(savedUser.getId()));
                         return savedUser;
                     }
                     return existingUser;
@@ -197,6 +201,7 @@ public class AuthService {
                     user.setEmailVerified(true);
                     User savedUser = userRepository.save(user);
                     evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
+                    authUserProfileEventPublisher.publish(savedUser, false);
                     return savedUser;
                 });
     }
@@ -459,6 +464,9 @@ public class AuthService {
         User savedUser = changed ? userRepository.save(user) : user;
         if (changed) {
             evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
+            if (updateContext.hasNameChange()) {
+                authUserProfileEventPublisher.publish(savedUser, isPremiumActive(savedUser.getId()));
+            }
         }
 
         String detail = determineProfileAuditDetail(updateContext.hasNameChange(), updateContext.hasCurrentPassword());
@@ -652,6 +660,7 @@ public class AuthService {
         String refreshToken = jwtService.generateRefreshToken();
         long refreshTtlSeconds = jwtService.getRefreshTokenExpirationSeconds();
         refreshTokenService.store(user.getId(), refreshToken, Duration.ofSeconds(refreshTtlSeconds));
+        authUserProfileEventPublisher.publish(user, isPremiumActive(user.getId()));
 
         return AuthTokenResponse.builder()
                 .accessToken(accessToken)

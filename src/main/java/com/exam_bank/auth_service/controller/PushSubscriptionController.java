@@ -12,6 +12,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -34,6 +35,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 @Slf4j
 public class PushSubscriptionController {
+
+    private static final String INTERNAL_ENDPOINT_DEPRECATION_WARNING = "299 - \"Deprecated internal auth endpoint. Migrate to auth.events push-subscription sync projection before 2026-10-31.\"";
+    private static final String INTERNAL_ENDPOINT_SUNSET_HEADER = "Sat, 31 Oct 2026 23:59:59 GMT";
 
     @Value("${notification.vapid.public-key}")
     private String vapidPublicKey;
@@ -67,7 +71,8 @@ public class PushSubscriptionController {
     }
 
     /**
-     * Authenticated — soft-deletes (deactivates) a push subscription for the current user.
+     * Authenticated — soft-deletes (deactivates) a push subscription for the
+     * current user.
      */
     @DeleteMapping
     @PreAuthorize("isAuthenticated()")
@@ -82,8 +87,12 @@ public class PushSubscriptionController {
 
     /**
      * Internal endpoint — returns active push subscriptions for a given userId.
-     * Secured by matching the X-Internal-Token header against the configured internal token.
+     * Secured by matching the X-Internal-Token header against the configured
+     * internal token.
+     *
+     * @deprecated Use auth.events push-subscription projection instead.
      */
+    @Deprecated(since = "2026-04", forRemoval = false)
     @GetMapping("/user/{userId}")
     public ResponseEntity<?> getSubscriptionsByUserId(
             @PathVariable Long userId,
@@ -91,17 +100,26 @@ public class PushSubscriptionController {
         if (!internalToken.equals(providedToken)) {
             log.warn("getSubscriptionsByUserId: invalid internal token from client");
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .headers(internalEndpointDeprecationHeaders())
                     .body(Map.of("error", "Forbidden"));
         }
+        log.warn("Deprecated endpoint called: GET /push-subscription/user/{}", userId);
         List<PushSubscriptionDto> subscriptions = pushSubscriptionService.getSubscriptionsByUserId(userId);
-        return ResponseEntity.ok(subscriptions);
+        return ResponseEntity.ok()
+                .headers(internalEndpointDeprecationHeaders())
+                .body(subscriptions);
     }
 
     /**
-     * Internal endpoint — returns all active push subscriptions for every user of a given role.
+     * Internal endpoint — returns all active push subscriptions for every user of a
+     * given role.
      * Used by notification_service to send admin/contributor alerts.
-     * Secured by matching the X-Internal-Token header against the configured internal token.
+     * Secured by matching the X-Internal-Token header against the configured
+     * internal token.
+     *
+     * @deprecated Use auth.events push-subscription projection instead.
      */
+    @Deprecated(since = "2026-04", forRemoval = false)
     @GetMapping("/role/{role}")
     public ResponseEntity<?> getSubscriptionsByRole(
             @PathVariable String role,
@@ -109,8 +127,10 @@ public class PushSubscriptionController {
         if (!internalToken.equals(providedToken)) {
             log.warn("getSubscriptionsByRole: invalid internal token from role={}", role);
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .headers(internalEndpointDeprecationHeaders())
                     .body(Map.of("error", "Forbidden"));
         }
+        log.warn("Deprecated endpoint called: GET /push-subscription/role/{}", role);
         try {
             Role roleEnum = Role.valueOf(role.toUpperCase());
             List<User> users = userRepository.findByRoleInAndStatusTrue(List.of(roleEnum));
@@ -118,10 +138,22 @@ public class PushSubscriptionController {
             for (User user : users) {
                 all.addAll(pushSubscriptionService.getSubscriptionsByUserId(user.getId()));
             }
-            return ResponseEntity.ok(all);
+            return ResponseEntity.ok()
+                    .headers(internalEndpointDeprecationHeaders())
+                    .body(all);
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Invalid role: " + role));
+            return ResponseEntity.badRequest()
+                    .headers(internalEndpointDeprecationHeaders())
+                    .body(Map.of("error", "Invalid role: " + role));
         }
+    }
+
+    private HttpHeaders internalEndpointDeprecationHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("Deprecation", "true");
+        headers.add("Sunset", INTERNAL_ENDPOINT_SUNSET_HEADER);
+        headers.add("Warning", INTERNAL_ENDPOINT_DEPRECATION_WARNING);
+        return headers;
     }
 
     private Long resolveUserId(String email) {

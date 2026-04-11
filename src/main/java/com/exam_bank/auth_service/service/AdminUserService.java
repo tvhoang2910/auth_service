@@ -12,8 +12,10 @@ import com.exam_bank.auth_service.dto.response.AdminImportUsersResponse;
 import com.exam_bank.auth_service.dto.response.AdminUserItemResponse;
 import com.exam_bank.auth_service.config.properties.NotificationRabbitProperties;
 import com.exam_bank.auth_service.entity.Role;
+import com.exam_bank.auth_service.entity.SubscriptionStatus;
 import com.exam_bank.auth_service.entity.User;
 import com.exam_bank.auth_service.exception.ConflictException;
+import com.exam_bank.auth_service.repository.UserSubscriptionRepository;
 import com.exam_bank.auth_service.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.persistence.criteria.Predicate;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -47,6 +50,8 @@ public class AdminUserService {
     private final PasswordEncoder passwordEncoder;
     private final RabbitTemplate rabbitTemplate;
     private final NotificationRabbitProperties notificationRabbitProperties;
+    private final UserSubscriptionRepository userSubscriptionRepository;
+    private final AuthUserProfileEventPublisher authUserProfileEventPublisher;
 
     @Transactional(readOnly = true)
     public Page<AdminUserItemResponse> getUsers(String search, Role role, Pageable pageable) {
@@ -102,6 +107,7 @@ public class AdminUserService {
         user.setSubject(null);
 
         User savedUser = userRepository.save(user);
+        authUserProfileEventPublisher.publish(savedUser, isPremiumActive(savedUser.getId()));
         return mapToResponse(savedUser);
     }
 
@@ -123,6 +129,7 @@ public class AdminUserService {
         user.setStatusChangedAt(changedAt);
 
         User savedUser = userRepository.save(user);
+        authUserProfileEventPublisher.publish(savedUser, null);
         if (wasActiveBefore && !active) {
             publishAccountLockedMessage(savedUser, normalizedReason, normalizedActor, changedAt);
         } else if (!wasActiveBefore && active) {
@@ -138,6 +145,7 @@ public class AdminUserService {
 
         user.setRole(request.role());
         User savedUser = userRepository.save(user);
+        authUserProfileEventPublisher.publish(savedUser, null);
         return mapToResponse(savedUser);
     }
 
@@ -186,6 +194,7 @@ public class AdminUserService {
                 user.setSchool(normalizeOptionalText(item.school()));
                 user.setSubject(normalizeOptionalText(item.subject()));
                 userRepository.save(user);
+                authUserProfileEventPublisher.publish(user, Boolean.FALSE);
                 created++;
             } catch (RuntimeException exception) {
                 failed++;
@@ -310,5 +319,18 @@ public class AdminUserService {
                 user.getStatusReason(),
                 user.getStatusChangedBy(),
                 user.getCreatedAt());
+    }
+
+    private boolean isPremiumActive(Long userId) {
+        if (userId == null || userId <= 0) {
+            return false;
+        }
+
+        Instant now = Instant.now();
+        return userSubscriptionRepository.existsByUserIdAndStatusAndStartDateLessThanEqualAndEndDateAfter(
+                userId,
+                SubscriptionStatus.APPROVED,
+                now,
+                now);
     }
 }
