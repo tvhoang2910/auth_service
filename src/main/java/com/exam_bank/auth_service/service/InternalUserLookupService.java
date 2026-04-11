@@ -1,12 +1,16 @@
 package com.exam_bank.auth_service.service;
 
 import com.exam_bank.auth_service.dto.internal.InternalUserDisplayNameResponse;
+import com.exam_bank.auth_service.dto.internal.InternalUserPremiumStatusResponse;
+import com.exam_bank.auth_service.entity.SubscriptionStatus;
 import com.exam_bank.auth_service.entity.User;
+import com.exam_bank.auth_service.repository.UserSubscriptionRepository;
 import com.exam_bank.auth_service.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -23,6 +27,7 @@ import static org.springframework.util.StringUtils.hasText;
 public class InternalUserLookupService {
 
     private final UserRepository userRepository;
+    private final UserSubscriptionRepository userSubscriptionRepository;
 
     public Optional<InternalUserDisplayNameResponse> findDisplayNameByUserId(Long userId) {
         if (userId == null || userId <= 0) {
@@ -57,5 +62,24 @@ public class InternalUserLookupService {
 
         log.debug("Resolved {} user display names out of {} requested ids", responses.size(), normalizedIds.size());
         return responses;
+    }
+
+    public Optional<InternalUserPremiumStatusResponse> findPremiumStatusByUserId(Long userId) {
+        if (userId == null || userId <= 0) {
+            return Optional.empty();
+        }
+
+        if (!userRepository.existsById(userId)) {
+            return Optional.empty();
+        }
+
+        Instant now = Instant.now();
+        boolean premium = userSubscriptionRepository.existsByUserIdAndStatusAndStartDateLessThanEqualAndEndDateAfter(
+                userId,
+                SubscriptionStatus.APPROVED,
+                now,
+                now);
+
+        return Optional.of(new InternalUserPremiumStatusResponse(userId, premium));
     }
 }

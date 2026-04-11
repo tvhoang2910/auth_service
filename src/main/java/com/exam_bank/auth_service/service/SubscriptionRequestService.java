@@ -54,6 +54,7 @@ public class SubscriptionRequestService {
     private final UserSubscriptionRepository userSubscriptionRepository;
     private final SubscriptionApprovalAuditRepository subscriptionApprovalAuditRepository;
     private final PaymentBillStorageService paymentBillStorageService;
+    private final UserProfileCacheService userProfileCacheService;
     private final RabbitTemplate rabbitTemplate;
     private final NotificationRabbitProperties notificationRabbitProperties;
 
@@ -211,6 +212,7 @@ public class SubscriptionRequestService {
         subscription.setStartDate(reviewedAt);
         subscription.setEndDate(resolveEndDate(subscription.getPlan(), reviewedAt));
         UserSubscription savedSubscription = userSubscriptionRepository.save(subscription);
+        userProfileCacheService.evict(savedSubscription.getUser().getId(), savedSubscription.getUser().getEmail());
 
         SubscriptionApprovalAudit audit = new SubscriptionApprovalAudit();
         audit.setSubscription(savedSubscription);

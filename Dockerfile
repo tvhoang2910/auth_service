@@ -1,42 +1,38 @@
 # syntax=docker/dockerfile:1.7
+FROM maven:3.9.11-eclipse-temurin-21 AS build
+WORKDIR /build
 
-# ===== STAGE 1: BUILD (CACHE-FRIENDLY) =====
-FROM maven:3.9.9-eclipse-temurin-21 AS builder
-WORKDIR /app
-
-# 1) Copy pom and prefetch dependencies
 COPY pom.xml ./
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn dependency:go-offline -B
+    mvn -B dependency:go-offline
 
-# 2) Copy source and package
 COPY src ./src
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn clean package -DskipTests -Dspring-boot.build-image.skip=true -B
+    mvn -B -DskipTests package
 
-# ===== STAGE 2: TOOLING FOR HEALTHCHECK =====
-FROM busybox:1.36.1-musl AS healthtools
+RUN JAR_FILE=$(ls target/*.jar | grep -v '\.original$' | head -n1) && cp "$JAR_FILE" app.jar
+RUN java -Djarmode=layertools -jar app.jar extract
 
-# ===== STAGE 3: RUNTIME (DISTROLESS NONROOT) =====
-FROM gcr.io/distroless/java21-debian12:nonroot
-WORKDIR /
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
 
-# 3) Copy app and healthcheck helper binary
-COPY --from=builder /app/target/*.jar /app.jar
-COPY --from=healthtools /bin/busybox /busybox
+RUN apk add --no-cache wget
+RUN addgroup -S spring && adduser -S spring -G spring
 
-# 4) OCI labels
-LABEL org.opencontainers.image.title="auth-service"
-LABEL org.opencontainers.image.description="Spring Boot Auth Service production image"
-LABEL org.opencontainers.image.licenses="MIT"
-LABEL org.opencontainers.image.version="1.0.0"
+COPY --from=build /build/dependencies/ ./
+COPY --from=build /build/snapshot-dependencies/ ./
+COPY --from=build /build/spring-boot-loader/ ./
+COPY --from=build /build/application/ ./
 
-# 5) Expose port
+RUN chown -R spring:spring /app
+USER spring
+
+ENV APP_PORT=8080
+ENV HEALTHCHECK_PATH=/api/v1/auth/actuator/health
+
 EXPOSE 8080
 
-# 6) Container healthcheck (Spring Actuator)
-HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
-  CMD ["/busybox", "wget", "-qO-", "http://127.0.0.1:8080/api/v1/auth/actuator/health"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD sh -c "wget -qO- http://127.0.0.1:${APP_PORT}${HEALTHCHECK_PATH} || exit 1"
 
-# 7) Optimized JVM startup
-ENTRYPOINT ["java", "-XX:+ExitOnOutOfMemoryError", "-XX:MaxRAMPercentage=75.0", "-XX:MinRAMPercentage=50.0", "-XX:+UseContainerSupport", "-XX:+AlwaysPreTouch", "-Djava.security.egd=file:/dev/urandom", "-jar", "/app.jar"]
+ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:InitialRAMPercentage=50.0", "-XX:MaxRAMPercentage=75.0", "-XX:+UseG1GC", "-XX:+ExitOnOutOfMemoryError", "org.springframework.boot.loader.JarLauncher"]

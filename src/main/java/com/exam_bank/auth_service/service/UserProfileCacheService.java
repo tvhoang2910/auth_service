@@ -14,8 +14,8 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class UserProfileCacheService {
 
-    private static final String ID_KEY_PREFIX = "user_profile:v2:id:";
-    private static final String EMAIL_KEY_PREFIX = "user_profile:v2:email:";
+    private static final String ID_KEY_PREFIX = "user_profile:v3:id:";
+    private static final String EMAIL_KEY_PREFIX = "user_profile:v3:email:";
 
     private final StringRedisTemplate stringRedisTemplate;
     private final AuthUserProfileCacheProperties cacheProperties;

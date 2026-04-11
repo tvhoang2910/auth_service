@@ -44,6 +44,21 @@ public class InternalUserController {
                         .body(Map.of("error", "User not found")));
     }
 
+    @GetMapping("/{userId}/premium-status")
+    public ResponseEntity<?> findPremiumStatusByUserId(
+            @PathVariable Long userId,
+            @RequestHeader("X-Internal-Token") String providedToken) {
+        if (!internalToken.equals(providedToken)) {
+            log.warn("findPremiumStatusByUserId: invalid internal token for userId={}", userId);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Forbidden"));
+        }
+
+        return internalUserLookupService.findPremiumStatusByUserId(userId)
+                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "User not found")));
+    }
+
     @PostMapping("/display-names")
     public ResponseEntity<?> findDisplayNamesByUserIds(
             @RequestHeader("X-Internal-Token") String providedToken,

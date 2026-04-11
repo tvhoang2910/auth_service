@@ -1,7 +1,10 @@
 package com.exam_bank.auth_service.service;
 
 import com.exam_bank.auth_service.dto.internal.InternalUserDisplayNameResponse;
+import com.exam_bank.auth_service.dto.internal.InternalUserPremiumStatusResponse;
 import com.exam_bank.auth_service.entity.User;
+import com.exam_bank.auth_service.entity.SubscriptionStatus;
+import com.exam_bank.auth_service.repository.UserSubscriptionRepository;
 import com.exam_bank.auth_service.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -11,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Arrays;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -24,6 +28,9 @@ class InternalUserLookupServiceTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private UserSubscriptionRepository userSubscriptionRepository;
 
     @InjectMocks
     private InternalUserLookupService internalUserLookupService;
@@ -65,5 +72,33 @@ class InternalUserLookupServiceTest {
         assertThat(result)
                 .extracting(InternalUserDisplayNameResponse::fullName)
                 .containsExactly("Teacher One", "Student Two");
+    }
+
+    @Test
+    @DisplayName("findPremiumStatusByUserId returns premium=true when active approved subscription exists")
+    void findPremiumStatusByUserIdReturnsTrueWhenPremiumIsActive() {
+        when(userRepository.existsById(9L)).thenReturn(true);
+        when(userSubscriptionRepository.existsByUserIdAndStatusAndStartDateLessThanEqualAndEndDateAfter(
+                org.mockito.ArgumentMatchers.eq(9L),
+                org.mockito.ArgumentMatchers.eq(SubscriptionStatus.APPROVED),
+                org.mockito.ArgumentMatchers.any(Instant.class),
+                org.mockito.ArgumentMatchers.any(Instant.class)))
+                .thenReturn(true);
+
+        Optional<InternalUserPremiumStatusResponse> result = internalUserLookupService.findPremiumStatusByUserId(9L);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().userId()).isEqualTo(9L);
+        assertThat(result.get().premium()).isTrue();
+    }
+
+    @Test
+    @DisplayName("findPremiumStatusByUserId returns empty when user does not exist")
+    void findPremiumStatusByUserIdReturnsEmptyForMissingUser() {
+        when(userRepository.existsById(999L)).thenReturn(false);
+
+        Optional<InternalUserPremiumStatusResponse> result = internalUserLookupService.findPremiumStatusByUserId(999L);
+
+        assertThat(result).isEmpty();
     }
 }

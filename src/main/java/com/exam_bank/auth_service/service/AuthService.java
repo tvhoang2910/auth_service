@@ -12,9 +12,11 @@ import com.exam_bank.auth_service.config.properties.AuthEmailVerificationPropert
 import com.exam_bank.auth_service.config.properties.AuthForgotPasswordProperties;
 import com.exam_bank.auth_service.config.properties.NotificationRabbitProperties;
 import com.exam_bank.auth_service.entity.Role;
+import com.exam_bank.auth_service.entity.SubscriptionStatus;
 import com.exam_bank.auth_service.entity.User;
 import com.exam_bank.auth_service.exception.BruteForceBlockedException;
 import com.exam_bank.auth_service.exception.ConflictException;
+import com.exam_bank.auth_service.repository.UserSubscriptionRepository;
 import com.exam_bank.auth_service.repository.UserRepository;
 import com.exam_bank.auth_service.security.JwtService;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.security.SecureRandom;
 import java.util.List;
 import java.util.Optional;
@@ -65,6 +68,7 @@ public class AuthService {
     private static final String USER_NOT_FOUND_MESSAGE = "User not found";
 
     private final UserRepository userRepository;
+    private final UserSubscriptionRepository userSubscriptionRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtService jwtService;
@@ -661,6 +665,7 @@ public class AuthService {
     }
 
     private UserProfileResponse mapToUserProfile(User user) {
+        boolean premium = isPremiumActive(user.getId());
         return UserProfileResponse.builder()
                 .id(user.getId())
                 .email(user.getEmail())
@@ -670,8 +675,21 @@ public class AuthService {
                 .school(user.getSchool())
                 .subject(user.getSubject())
                 .role(user.getRole())
-                .premium(false)
+                .premium(premium)
                 .build();
+    }
+
+    private boolean isPremiumActive(Long userId) {
+        if (userId == null || userId <= 0) {
+            return false;
+        }
+
+        Instant now = Instant.now();
+        return userSubscriptionRepository.existsByUserIdAndStatusAndStartDateLessThanEqualAndEndDateAfter(
+                userId,
+                SubscriptionStatus.APPROVED,
+                now,
+                now);
     }
 
     private String normalizeOptionalText(String value) {

@@ -9,6 +9,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 
@@ -21,4 +22,10 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
     Page<UserSubscription> findByStatusOrderByCreatedAtAsc(SubscriptionStatus status, Pageable pageable);
 
     boolean existsByUserAndPlanAndStatusIn(User user, PremiumPlan plan, Collection<SubscriptionStatus> statuses);
+
+    boolean existsByUserIdAndStatusAndStartDateLessThanEqualAndEndDateAfter(
+            Long userId,
+            SubscriptionStatus status,
+            Instant nowForStartDate,
+            Instant nowForEndDate);
 }
