@@ -10,4 +10,8 @@ public interface PremiumPlanRepository extends JpaRepository<PremiumPlan, Long> 
     List<PremiumPlan> findByActiveTrueOrderByPriceAsc();
 
     List<PremiumPlan> findAllByOrderByCreatedAtDesc();
+
+    boolean existsByNameIgnoreCase(String name);
+
+    boolean existsByNameIgnoreCaseAndIdNot(String name, Long id);
 }

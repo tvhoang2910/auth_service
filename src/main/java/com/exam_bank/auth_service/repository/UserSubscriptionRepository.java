@@ -23,6 +23,8 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
 
     boolean existsByUserAndPlanAndStatusIn(User user, PremiumPlan plan, Collection<SubscriptionStatus> statuses);
 
+    boolean existsByPlanId(Long planId);
+
     boolean existsByUserIdAndStatusAndStartDateLessThanEqualAndEndDateAfter(
             Long userId,
             SubscriptionStatus status,

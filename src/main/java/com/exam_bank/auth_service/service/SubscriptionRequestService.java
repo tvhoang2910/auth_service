@@ -23,10 +23,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
@@ -70,7 +72,7 @@ public class SubscriptionRequestService {
 
     @Transactional(readOnly = true)
     public List<PremiumPlanSummaryResponse> getPlansForManagement(String actorEmail) {
-        User actor = validatePlanManagerRole(actorEmail);
+        User actor = validateAdminPlanManagerRole(actorEmail);
         List<PremiumPlanSummaryResponse> plans = premiumPlanRepository.findAllByOrderByCreatedAtDesc()
                 .stream()
                 .map(this::mapPlan)
@@ -79,17 +81,43 @@ public class SubscriptionRequestService {
         return plans;
     }
 
+        @Transactional(readOnly = true)
+        public List<PremiumPlanSummaryResponse> getPlansForManagement(String actorEmail, String search, Boolean active) {
+        User actor = validateAdminPlanManagerRole(actorEmail);
+        String normalizedSearch = normalizeOptionalText(search);
+
+        List<PremiumPlanSummaryResponse> plans = premiumPlanRepository.findAllByOrderByCreatedAtDesc()
+            .stream()
+            .filter(plan -> active == null || plan.isActive() == active)
+            .filter(plan -> matchesSearchKeyword(plan, normalizedSearch))
+            .map(this::mapPlan)
+            .toList();
+
+        log.info("Actor {} loaded {} plans for management with search={} active={}",
+            actor.getEmail(),
+            plans.size(),
+            normalizedSearch,
+            active);
+        return plans;
+        }
+
     @Transactional
     public PremiumPlanSummaryResponse createPremiumPlan(String actorEmail, CreatePremiumPlanRequest request) {
-        User actor = validatePlanManagerRole(actorEmail);
+        User actor = validateAdminPlanManagerRole(actorEmail);
+        String normalizedName = request.name().trim();
+
+        if (premiumPlanRepository.existsByNameIgnoreCase(normalizedName)) {
+            throw new IllegalArgumentException("Premium plan name already exists");
+        }
+
         log.info("Actor {} creating premium plan name={} lifetime={} active={}",
                 actor.getEmail(),
-                request.name(),
+            normalizedName,
                 Boolean.TRUE.equals(request.lifetime()),
                 request.active() == null || request.active());
 
         PremiumPlan plan = new PremiumPlan();
-        plan.setName(request.name().trim());
+        plan.setName(normalizedName);
         plan.setPrice(request.price());
         plan.setDurationDays(resolveDurationDays(request.durationDays(), request.lifetime()));
         plan.setLifetime(Boolean.TRUE.equals(request.lifetime()));
@@ -99,6 +127,46 @@ public class SubscriptionRequestService {
         PremiumPlan saved = premiumPlanRepository.save(plan);
         log.info("Actor {} created premium plan id={} name={}", actor.getEmail(), saved.getId(), saved.getName());
         return mapPlan(saved);
+    }
+
+    @Transactional
+    public PremiumPlanSummaryResponse updatePremiumPlan(Long planId, String actorEmail, CreatePremiumPlanRequest request) {
+        User actor = validateAdminPlanManagerRole(actorEmail);
+        PremiumPlan plan = premiumPlanRepository.findById(planId)
+                .orElseThrow(() -> new IllegalArgumentException("Premium plan not found"));
+
+        String normalizedName = request.name().trim();
+        if (premiumPlanRepository.existsByNameIgnoreCaseAndIdNot(normalizedName, planId)) {
+            throw new IllegalArgumentException("Premium plan name already exists");
+        }
+
+        plan.setName(normalizedName);
+        plan.setPrice(request.price());
+        plan.setDurationDays(resolveDurationDays(request.durationDays(), request.lifetime()));
+        plan.setLifetime(Boolean.TRUE.equals(request.lifetime()));
+        plan.setDescription(normalizeOptionalText(request.description()));
+        plan.setActive(request.active() == null || request.active());
+
+        PremiumPlan saved = premiumPlanRepository.save(plan);
+        log.info("Actor {} updated premium plan id={} name={}", actor.getEmail(), saved.getId(), saved.getName());
+        return mapPlan(saved);
+    }
+
+    @Transactional
+    public void deletePremiumPlan(Long planId, String actorEmail) {
+        User actor = validateAdminPlanManagerRole(actorEmail);
+        PremiumPlan plan = premiumPlanRepository.findById(planId)
+                .orElseThrow(() -> new IllegalArgumentException("Premium plan not found"));
+
+        if (userSubscriptionRepository.existsByPlanId(planId)) {
+            log.warn("Actor {} attempted to delete premium plan id={} that already has subscriptions",
+                    actor.getEmail(),
+                    planId);
+            throw new IllegalArgumentException("Cannot delete plan that already has subscriptions; set it inactive instead");
+        }
+
+        premiumPlanRepository.delete(plan);
+        log.info("Actor {} deleted premium plan id={} name={}", actor.getEmail(), planId, plan.getName());
     }
 
     @Transactional
@@ -316,13 +384,23 @@ public class SubscriptionRequestService {
         return reviewer;
     }
 
-    private User validatePlanManagerRole(String actorEmail) {
+    private User validateAdminPlanManagerRole(String actorEmail) {
         User actor = getUserByEmail(actorEmail);
-        if (actor.getRole() != Role.ADMIN && actor.getRole() != Role.CONTRIBUTOR) {
+        if (actor.getRole() != Role.ADMIN) {
             log.warn("Forbidden plan-management access for user {} with role {}", actor.getEmail(), actor.getRole());
-            throw new IllegalArgumentException("Only ADMIN or CONTRIBUTOR can create premium plans");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only ADMIN can manage premium plans");
         }
         return actor;
+    }
+
+    private boolean matchesSearchKeyword(PremiumPlan plan, String normalizedSearch) {
+        if (!hasText(normalizedSearch)) {
+            return true;
+        }
+        String keyword = normalizedSearch.toLowerCase(Locale.ROOT);
+        String description = plan.getDescription() == null ? "" : plan.getDescription();
+        return plan.getName().toLowerCase(Locale.ROOT).contains(keyword)
+                || description.toLowerCase(Locale.ROOT).contains(keyword);
     }
 
     private BigDecimal resolvePurchasedPrice(PremiumPlan plan) {

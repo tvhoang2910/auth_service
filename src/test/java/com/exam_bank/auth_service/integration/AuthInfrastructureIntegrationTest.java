@@ -29,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.jpa.hibernate.ddl-auto=update"
 })
 @DisplayName("Auth Infrastructure Integration Test")
+@SuppressWarnings("resource")
 class AuthInfrastructureIntegrationTest {
 
     @Container

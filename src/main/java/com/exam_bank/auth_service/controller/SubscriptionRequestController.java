@@ -17,10 +17,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -45,13 +48,23 @@ public class SubscriptionRequestController {
     }
 
     @GetMapping("/plans/manage")
-    public ResponseEntity<List<PremiumPlanSummaryResponse>> getPlansForManagement(Authentication authentication) {
-        List<PremiumPlanSummaryResponse> plans = subscriptionRequestService.getPlansForManagement(authentication.getName());
-        log.info("getPlansForManagement: actor={}, count={}", authentication.getName(), plans.size());
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<PremiumPlanSummaryResponse>> getPlansForManagement(
+            Authentication authentication,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) Boolean active) {
+        List<PremiumPlanSummaryResponse> plans = subscriptionRequestService
+                .getPlansForManagement(authentication.getName(), search, active);
+        log.info("getPlansForManagement: actor={}, count={}, search={}, active={}",
+            authentication.getName(),
+            plans.size(),
+            search,
+            active);
         return ResponseEntity.ok(plans);
     }
 
     @PostMapping("/plans")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<PremiumPlanSummaryResponse> createPremiumPlan(
             Authentication authentication,
             @Valid @org.springframework.web.bind.annotation.RequestBody CreatePremiumPlanRequest request) {
@@ -63,6 +76,32 @@ public class SubscriptionRequestController {
         PremiumPlanSummaryResponse response = subscriptionRequestService.createPremiumPlan(authentication.getName(),
                 request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PutMapping("/plans/{planId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<PremiumPlanSummaryResponse> updatePremiumPlan(
+            @PathVariable Long planId,
+            Authentication authentication,
+            @Valid @org.springframework.web.bind.annotation.RequestBody CreatePremiumPlanRequest request) {
+        log.info("updatePremiumPlan: actor={}, planId={}, name={}, lifetime={}, durationDays={}",
+                authentication.getName(),
+                planId,
+                request.name(),
+                request.lifetime(),
+                request.durationDays());
+        PremiumPlanSummaryResponse response = subscriptionRequestService.updatePremiumPlan(planId,
+                authentication.getName(),
+                request);
+        return ResponseEntity.ok(response);
+    }
+
+    @DeleteMapping("/plans/{planId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> deletePremiumPlan(@PathVariable Long planId, Authentication authentication) {
+        log.info("deletePremiumPlan: actor={}, planId={}", authentication.getName(), planId);
+        subscriptionRequestService.deletePremiumPlan(planId, authentication.getName());
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping(value = "/purchase-requests", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
