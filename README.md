@@ -133,10 +133,11 @@ Tat ca path ben duoi la relative path theo context /api/v1/auth.
 - GET /oauth2/authorization/google
 - POST /oauth2/exchange
 - GET /push-subscription/vapid-public-key
-- GET /push-subscription/user/{userId} (yeu cau header X-Internal-Token)
-- GET /push-subscription/role/{role} (yeu cau header X-Internal-Token)
-- GET /internal/users/{userId}/display-name (yeu cau header X-Internal-Token)
-- POST /internal/users/display-names (yeu cau header X-Internal-Token)
+- GET /push-subscription/user/{userId} (DEPRECATED, internal, yeu cau header X-Internal-Token; sunset 2026-10-31; migrate sang auth.events push-subscription sync)
+- GET /push-subscription/role/{role} (DEPRECATED, internal, yeu cau header X-Internal-Token; sunset 2026-10-31; migrate sang auth.events push-subscription sync)
+- GET /internal/users/{userId}/display-name (DEPRECATED, internal, yeu cau header X-Internal-Token; sunset 2026-10-31; migrate sang auth.events user profile sync)
+- GET /internal/users/{userId}/premium-status (DEPRECATED, internal, yeu cau header X-Internal-Token; sunset 2026-10-31; migrate sang auth.events user profile sync)
+- POST /internal/users/display-names (DEPRECATED, internal, yeu cau header X-Internal-Token; sunset 2026-10-31; migrate sang auth.events user profile sync)
 - GET /sse/presence (token qua Authorization hoac query param token)
 - POST /sse/presence/heartbeat (token qua Authorization hoac query param token)
 - GET /actuator/health
@@ -218,6 +219,12 @@ Tat ca path ben duoi la relative path theo context /api/v1/auth.
 Nhung endpoint danh cho service-to-service duoc bao ve bang header:
 
 - X-Internal-Token: <NOTIFICATION_INTERNAL_TOKEN>
+
+Trang thai hien tai:
+
+- Cac endpoint internal cu duoc giu tam thoi de backward compatibility va da danh dau DEPRECATED.
+- Auth service se tra them header Deprecation=true, Sunset=Sat, 31 Oct 2026 23:59:59 GMT va Warning de canh bao migration.
+- Huong thay the chinh thuc: su dung auth.events projection (user profile sync + push-subscription sync), khong goi HTTP internal endpoint moi.
 
 ## 7. Presence realtime (SSE)
 
