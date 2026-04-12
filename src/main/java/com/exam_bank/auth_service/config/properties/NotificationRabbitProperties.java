@@ -38,4 +38,10 @@ public class NotificationRabbitProperties {
 
     @NotBlank
     private String webPushSubscriptionReviewedRoutingKey;
+
+    @NotBlank
+    private String emailSubscriptionExpiryReminderRoutingKey;
+
+    @NotBlank
+    private String webPushSubscriptionExpiryReminderRoutingKey;
 }

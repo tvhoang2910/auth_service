@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 public class PaymentBillStorageService {
 
-    private static final long MAX_BILL_SIZE_BYTES = 10L * 1024 * 1024;
+    private static final long MAX_BILL_SIZE_BYTES = 20L * 1024 * 1024;
 
     private final MinioClient minioClient;
     private final MinioProperties minioProperties;
@@ -35,7 +35,7 @@ public class PaymentBillStorageService {
             throw new IllegalArgumentException("Bill image is required");
         }
         if (file.getSize() > MAX_BILL_SIZE_BYTES) {
-            throw new IllegalArgumentException("Bill image size must be less than or equal to 10MB");
+            throw new IllegalArgumentException("Bill image size must be less than or equal to 20MB");
         }
 
         String contentType = normalizeContentType(file.getContentType());

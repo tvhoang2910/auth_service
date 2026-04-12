@@ -65,6 +65,9 @@ public class UserSubscription extends BaseEntity {
     @Column(name = "cancelled_at")
     private Instant cancelledAt;
 
+    @Column(name = "expiry_reminder_sent_at")
+    private Instant expiryReminderSentAt;
+
     @Column(name = "refunded_amount", precision = 12, scale = 2)
     private BigDecimal refundedAmount;
 

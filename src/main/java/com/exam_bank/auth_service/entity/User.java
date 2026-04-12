@@ -46,6 +46,12 @@ public class User extends BaseEntity {
     @Column(name = "email_verified", nullable = false, columnDefinition = "boolean default false")
     private boolean emailVerified = false;
 
+    @Column(name = "email_notifications_enabled", nullable = false, columnDefinition = "boolean default true")
+    private boolean emailNotificationsEnabled = true;
+
+    @Column(name = "web_push_notifications_enabled", nullable = false, columnDefinition = "boolean default true")
+    private boolean webPushNotificationsEnabled = true;
+
     @Size(max = 500)
     @Column(name = "avatar_url", length = 500)
     private String avatarUrl;

@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.IOException;
+import java.util.Locale;
 
 import static org.springframework.util.StringUtils.hasText;
 
@@ -49,11 +50,48 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
         }
         String exchangeCode = oauth2LoginExchangeService.issueCode(user.getId());
 
-        String targetUrl = UriComponentsBuilder.fromUriString(appOauth2Properties.getSuccessRedirectUrl())
+        String targetUrl = resolveRedirectUriBuilder(request, appOauth2Properties.getSuccessRedirectUrl())
                 .queryParam("code", exchangeCode)
                 .build(true)
                 .toUriString();
 
         getRedirectStrategy().sendRedirect(request, response, targetUrl);
+    }
+
+    private UriComponentsBuilder resolveRedirectUriBuilder(HttpServletRequest request, String configuredRedirect) {
+        if (hasText(configuredRedirect)
+                && (configuredRedirect.startsWith("http://") || configuredRedirect.startsWith("https://"))) {
+            return UriComponentsBuilder.fromUriString(configuredRedirect);
+        }
+
+        String normalizedPath = hasText(configuredRedirect)
+                ? (configuredRedirect.startsWith("/") ? configuredRedirect : "/" + configuredRedirect)
+                : "/oauth2/success";
+
+        String forwardedProto = firstForwardedValue(request.getHeader("X-Forwarded-Proto"));
+        String scheme = hasText(forwardedProto) ? forwardedProto : request.getScheme();
+        if (!hasText(scheme)) {
+            scheme = "http";
+        }
+
+        String forwardedHost = firstForwardedValue(request.getHeader("X-Forwarded-Host"));
+        String host = hasText(forwardedHost) ? forwardedHost : request.getHeader("Host");
+        if (!hasText(host)) {
+            host = request.getServerName();
+            int port = request.getServerPort();
+            if (port > 0 && port != 80 && port != 443) {
+                host = host + ":" + port;
+            }
+        }
+
+        String baseUri = scheme.toLowerCase(Locale.ROOT) + "://" + host;
+        return UriComponentsBuilder.fromUriString(baseUri).path(normalizedPath);
+    }
+
+    private String firstForwardedValue(String headerValue) {
+        if (!hasText(headerValue)) {
+            return null;
+        }
+        return headerValue.split(",", 2)[0].trim();
     }
 }

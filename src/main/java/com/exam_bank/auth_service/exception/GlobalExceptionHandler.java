@@ -10,6 +10,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -69,6 +70,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(StorageUnavailableException.class)
     public ResponseEntity<Map<String, Object>> handleStorageUnavailable(StorageUnavailableException exception) {
         return buildResponse(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String, Object>> handleMaxUploadSize(MaxUploadSizeExceededException exception) {
+        return buildResponse(HttpStatus.valueOf(413),
+                "Kich thuoc tep vuot qua gioi han cho phep (toi da 20MB)");
     }
 
     @ExceptionHandler(Exception.class)

@@ -136,6 +136,21 @@
       "description": "A description for 'auth.notification.email-subscription-reviewed-routing-key'"
     },
     {
+      "name": "auth.notification.email-subscription-expiry-reminder-routing-key",
+      "type": "java.lang.String",
+      "description": "Routing key for subscription expiry reminder email notifications."
+    },
+    {
+      "name": "auth.notification.web-push-subscription-expiry-reminder-routing-key",
+      "type": "java.lang.String",
+      "description": "Routing key for subscription expiry reminder web-push notifications."
+    },
+    {
+      "name": "auth.subscription.automation.expire-cron",
+      "type": "java.lang.String",
+      "description": "Cron expression for daily subscription expiration automation."
+    },
+    {
       "name": "app.cors.allowed-origins",
       "type": "java.lang.String",
       "description": "Comma-separated list of allowed CORS origins."
@@ -149,6 +164,16 @@
       "name": "notification.internal-token",
       "type": "java.lang.String",
       "description": "Internal service token for trusted server-to-server notification operations."
+    },
+    {
+      "name": "spring.servlet.multipart.max-file-size",
+      "type": "java.lang.String",
+      "description": "Maximum single multipart file size accepted by auth service."
+    },
+    {
+      "name": "spring.servlet.multipart.max-request-size",
+      "type": "java.lang.String",
+      "description": "Maximum total multipart request size accepted by auth service."
     },
     {
       "name": "auth.events.push-subscription-sync-routing-key",

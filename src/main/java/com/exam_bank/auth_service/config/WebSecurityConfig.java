@@ -117,7 +117,7 @@ public class WebSecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of(corsProperties.getAllowedOrigins().split(","))
+        configuration.setAllowedOriginPatterns(List.of(corsProperties.getAllowedOrigins().split(","))
                 .stream()
                 .map(String::trim)
                 .toList());

@@ -1,6 +1,7 @@
 package com.exam_bank.auth_service.service;
 
 import com.exam_bank.auth_service.config.properties.NotificationRabbitProperties;
+import com.exam_bank.auth_service.dto.message.SubscriptionExpiryReminderMessage;
 import com.exam_bank.auth_service.dto.message.SubscriptionReviewRequestedMessage;
 import com.exam_bank.auth_service.dto.message.SubscriptionReviewedMessage;
 import com.exam_bank.auth_service.dto.request.CancelSubscriptionRequest;
@@ -44,6 +45,7 @@ import java.time.Instant;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
@@ -58,6 +60,9 @@ public class SubscriptionRequestService {
 
     private static final long LIFETIME_DAYS = 36500L;
     private static final String SECURITY_AUDIT_CANCEL_ACTION = "CANCEL_SUBSCRIPTION";
+    private static final String NOTIFICATION_TYPE_SUBSCRIPTION_REVIEW_REQUESTED = "SUBSCRIPTION_REVIEW_REQUESTED";
+    private static final String NOTIFICATION_TYPE_SUBSCRIPTION_REVIEWED = "SUBSCRIPTION_REVIEWED";
+    private static final String NOTIFICATION_TYPE_SUBSCRIPTION_EXPIRY_REMINDER = "SUBSCRIPTION_EXPIRY_REMINDER";
     private static final BigDecimal ZERO_MONEY = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
     private static final Set<SubscriptionStatus> BLOCKING_DUPLICATE_STATUSES = EnumSet.of(
             SubscriptionStatus.PENDING_REVIEW,
@@ -73,6 +78,7 @@ public class SubscriptionRequestService {
     private final RabbitTemplate rabbitTemplate;
     private final NotificationRabbitProperties notificationRabbitProperties;
     private final AuthUserProfileEventPublisher authUserProfileEventPublisher;
+    private final NotificationCenterService notificationCenterService;
 
     @Transactional(readOnly = true)
     public List<PremiumPlanSummaryResponse> getActivePlans() {
@@ -311,7 +317,7 @@ public class SubscriptionRequestService {
         audit.setReviewNote(normalizeOptionalText(request.reviewNote()));
         audit.setReviewedAt(reviewedAt);
         boolean dispatched = publishReviewedMessage(savedSubscription, reviewer, audit.getReviewNote(), reviewedAt,
-                approved);
+                approved ? "APPROVED" : "REJECTED");
         audit.setNotificationDispatched(dispatched);
         subscriptionApprovalAuditRepository.save(audit);
         log.info("Review completed subscriptionId={} newStatus={} reviewer={} notificationDispatched={}",
@@ -463,14 +469,22 @@ public class SubscriptionRequestService {
                 actor.getEmail(),
                 buildCancellationSuccessDetails(savedSubscription, refundOutcome));
 
+        boolean notificationDispatched = publishReviewedMessage(
+                savedSubscription,
+                actor,
+                reason,
+                cancelledAt,
+                "CANCELLED");
+
         log.info(
-                "Actor {} cancelled subscriptionId={} previousStatus={} refundPolicy={} refundRate={} refundAmount={}",
+                "Actor {} cancelled subscriptionId={} previousStatus={} refundPolicy={} refundRate={} refundAmount={} notificationDispatched={}",
                 actor.getEmail(),
                 savedSubscription.getId(),
                 previousStatus,
                 refundOutcome.policy(),
                 refundOutcome.refundRate(),
-                refundOutcome.refundAmount());
+                refundOutcome.refundAmount(),
+                notificationDispatched);
 
         return new CancelSubscriptionResponse(
                 savedSubscription.getId(),
@@ -481,6 +495,16 @@ public class SubscriptionRequestService {
                 refundOutcome.refundRate(),
                 refundOutcome.refundAmount(),
                 cancelledAt);
+    }
+
+    @Transactional
+    public SubscriptionAutomationResult runSubscriptionAutomation(Instant referenceTime) {
+        Instant now = referenceTime == null ? Instant.now() : referenceTime;
+
+        int expiredCount = expireApprovedSubscriptions(now);
+        int reminderCount = publishExpiryReminders(now);
+
+        return new SubscriptionAutomationResult(now, expiredCount, reminderCount);
     }
 
     @Transactional(readOnly = true)
@@ -722,6 +746,59 @@ public class SubscriptionRequestService {
                 + ", refundAmount=" + refundOutcome.refundAmount();
     }
 
+    private int expireApprovedSubscriptions(Instant now) {
+        List<UserSubscription> subscriptions = userSubscriptionRepository
+                .findByStatusAndEndDateBefore(SubscriptionStatus.APPROVED, now);
+        if (subscriptions.isEmpty()) {
+            log.info("Subscription automation expired 0 records at {}", now);
+            return 0;
+        }
+
+        for (UserSubscription subscription : subscriptions) {
+            subscription.setStatus(SubscriptionStatus.EXPIRED);
+            subscription.setExpiryReminderSentAt(now);
+        }
+
+        List<UserSubscription> saved = userSubscriptionRepository.saveAll(subscriptions);
+        for (UserSubscription subscription : saved) {
+            Long userId = subscription.getUser().getId();
+            String email = subscription.getUser().getEmail();
+            userProfileCacheService.evict(userId, email);
+            authUserProfileEventPublisher.publish(subscription.getUser(), isUserPremiumActive(userId));
+        }
+
+        log.info("Subscription automation expired {} records at {}", saved.size(), now);
+        return saved.size();
+    }
+
+    private int publishExpiryReminders(Instant now) {
+        Instant reminderDeadline = now.plus(3, ChronoUnit.DAYS);
+
+        List<UserSubscription> dueReminders = userSubscriptionRepository.findForExpiryReminder(
+                SubscriptionStatus.APPROVED,
+                now,
+                reminderDeadline);
+        if (dueReminders.isEmpty()) {
+            log.info("Subscription automation sent 0 expiry reminders at {}", now);
+            return 0;
+        }
+
+        List<UserSubscription> remindedSubscriptions = new ArrayList<>();
+        for (UserSubscription subscription : dueReminders) {
+            if (publishExpiryReminderMessage(subscription, now)) {
+                subscription.setExpiryReminderSentAt(now);
+                remindedSubscriptions.add(subscription);
+            }
+        }
+
+        if (!remindedSubscriptions.isEmpty()) {
+            userSubscriptionRepository.saveAll(remindedSubscriptions);
+        }
+
+        log.info("Subscription automation sent {} expiry reminders at {}", remindedSubscriptions.size(), now);
+        return remindedSubscriptions.size();
+    }
+
     private void ensureNoBlockingDuplicateRequest(User user, PremiumPlan plan) {
         boolean exists = userSubscriptionRepository.existsByUserAndPlanAndStatusIn(
                 user,
@@ -756,38 +833,51 @@ public class SubscriptionRequestService {
             return;
         }
 
-        try {
-            log.info("Publishing review requested notifications for subscriptionId={} to {} reviewers",
+        log.info("Publishing review requested notifications for subscriptionId={} to {} reviewers",
+                subscription.getId(),
+                reviewers.size());
+        for (User reviewer : reviewers) {
+            SubscriptionReviewRequestedMessage message = new SubscriptionReviewRequestedMessage(
                     subscription.getId(),
-                    reviewers.size());
-            for (User reviewer : reviewers) {
-                SubscriptionReviewRequestedMessage message = new SubscriptionReviewRequestedMessage(
-                        subscription.getId(),
-                        reviewer.getId(),
-                        reviewer.getEmail(),
-                        reviewer.getFullName(),
-                        subscription.getUser().getEmail(),
-                        subscription.getUser().getFullName(),
-                        subscription.getPlan().getName(),
-                        subscription.getPurchasedPrice(),
-                        subscription.getBillImageUrl(),
-                        subscription.getTransactionRef(),
-                        subscription.getCreatedAt() == null ? Instant.now().toString()
-                                : subscription.getCreatedAt().toString());
+                    reviewer.getId(),
+                    reviewer.getEmail(),
+                    reviewer.getFullName(),
+                    subscription.getUser().getEmail(),
+                    subscription.getUser().getFullName(),
+                    subscription.getPlan().getName(),
+                    subscription.getPurchasedPrice(),
+                    subscription.getBillImageUrl(),
+                    subscription.getTransactionRef(),
+                    subscription.getCreatedAt() == null ? Instant.now().toString()
+                            : subscription.getCreatedAt().toString());
 
-                rabbitTemplate.convertAndSend(
-                        notificationRabbitProperties.getExchange(),
-                        notificationRabbitProperties.getEmailSubscriptionReviewRoutingKey(),
-                        message);
-                rabbitTemplate.convertAndSend(
-                        notificationRabbitProperties.getExchange(),
-                        notificationRabbitProperties.getWebPushSubscriptionReviewRoutingKey(),
-                        message);
-            }
-            log.info("Published review requested notifications for subscriptionId={}", subscription.getId());
-        } catch (AmqpException exception) {
-            log.error("Failed to publish subscription review requested event for subscription {}", subscription.getId(),
-                    exception);
+            boolean emailDispatched = reviewer.isEmailNotificationsEnabled()
+                    && publishToRoutingKey(
+                            notificationRabbitProperties.getEmailSubscriptionReviewRoutingKey(),
+                            message,
+                            "subscription-review-requested email",
+                            subscription.getId());
+            boolean webPushDispatched = reviewer.isWebPushNotificationsEnabled()
+                    && publishToRoutingKey(
+                            notificationRabbitProperties.getWebPushSubscriptionReviewRoutingKey(),
+                            message,
+                            "subscription-review-requested web-push",
+                            subscription.getId());
+
+            notificationCenterService.createNotification(
+                    reviewer,
+                    NOTIFICATION_TYPE_SUBSCRIPTION_REVIEW_REQUESTED,
+                    "Yeu cau duyet Premium moi",
+                    String.format("%s vua gui request %s", subscription.getUser().getFullName(),
+                            subscription.getPlan().getName()),
+                    "/contributor/subscription-reviews");
+
+            log.info(
+                    "Published review requested notifications for reviewerId={} subscriptionId={} emailDispatched={} webPushDispatched={}",
+                    reviewer.getId(),
+                    subscription.getId(),
+                    emailDispatched,
+                    webPushDispatched);
         }
     }
 
@@ -796,38 +886,124 @@ public class SubscriptionRequestService {
             User reviewer,
             String reviewNote,
             Instant reviewedAt,
-            boolean approved) {
+            String decision) {
+        User subscriber = subscription.getUser();
         SubscriptionReviewedMessage message = new SubscriptionReviewedMessage(
                 subscription.getId(),
-                subscription.getUser().getId(),
-                subscription.getUser().getEmail(),
-                subscription.getUser().getFullName(),
+                subscriber.getId(),
+                subscriber.getEmail(),
+                subscriber.getFullName(),
                 subscription.getPlan().getName(),
                 subscription.getPurchasedPrice(),
-                approved ? "APPROVED" : "REJECTED",
+                decision,
                 reviewer.getEmail(),
                 reviewNote,
                 reviewedAt.toString());
 
+        boolean emailDispatched = subscriber.isEmailNotificationsEnabled()
+                && publishToRoutingKey(
+                        notificationRabbitProperties.getEmailSubscriptionReviewedRoutingKey(),
+                        message,
+                        "subscription-reviewed email",
+                        subscription.getId());
+        boolean webPushDispatched = subscriber.isWebPushNotificationsEnabled()
+                && publishToRoutingKey(
+                        notificationRabbitProperties.getWebPushSubscriptionReviewedRoutingKey(),
+                        message,
+                        "subscription-reviewed web-push",
+                        subscription.getId());
+
+        notificationCenterService.createNotification(
+                subscriber,
+                NOTIFICATION_TYPE_SUBSCRIPTION_REVIEWED,
+                buildReviewedNotificationTitle(decision),
+                String.format("Goi %s: %s", subscription.getPlan().getName(), normalizeDecisionLabel(decision)),
+                "/dashboard/subscription-payments");
+
+        log.info(
+                "Published subscription reviewed notifications for subscriptionId={} reviewedBy={} decision={} emailDispatched={} webPushDispatched={}",
+                subscription.getId(),
+                reviewer.getEmail(),
+                decision,
+                emailDispatched,
+                webPushDispatched);
+        return emailDispatched || webPushDispatched;
+    }
+
+    private boolean publishExpiryReminderMessage(UserSubscription subscription, Instant remindedAt) {
+        User subscriber = subscription.getUser();
+        SubscriptionExpiryReminderMessage message = new SubscriptionExpiryReminderMessage(
+                subscription.getId(),
+                subscriber.getId(),
+                subscriber.getEmail(),
+                subscriber.getFullName(),
+                subscription.getPlan().getName(),
+                subscription.getPurchasedPrice(),
+                subscription.getEndDate().toString(),
+                remindedAt.toString());
+
+        boolean emailDispatched = subscriber.isEmailNotificationsEnabled()
+                && publishToRoutingKey(
+                        notificationRabbitProperties.getEmailSubscriptionExpiryReminderRoutingKey(),
+                        message,
+                        "subscription-expiry-reminder email",
+                        subscription.getId());
+        boolean webPushDispatched = subscriber.isWebPushNotificationsEnabled()
+                && publishToRoutingKey(
+                        notificationRabbitProperties.getWebPushSubscriptionExpiryReminderRoutingKey(),
+                        message,
+                        "subscription-expiry-reminder web-push",
+                        subscription.getId());
+
+        notificationCenterService.createNotification(
+                subscriber,
+                NOTIFICATION_TYPE_SUBSCRIPTION_EXPIRY_REMINDER,
+                "Goi Premium sap het han",
+                String.format("%s se het han vao %s", subscription.getPlan().getName(), subscription.getEndDate()),
+                "/dashboard/subscription-payments");
+
+        log.info(
+                "Published expiry reminder notifications for subscriptionId={} expiresAt={} emailDispatched={} webPushDispatched={}",
+                subscription.getId(),
+                subscription.getEndDate(),
+                emailDispatched,
+                webPushDispatched);
+        return emailDispatched || webPushDispatched;
+    }
+
+    private boolean publishToRoutingKey(String routingKey, Object payload, String channel, Long subscriptionId) {
         try {
             rabbitTemplate.convertAndSend(
                     notificationRabbitProperties.getExchange(),
-                    notificationRabbitProperties.getEmailSubscriptionReviewedRoutingKey(),
-                    message);
-            rabbitTemplate.convertAndSend(
-                    notificationRabbitProperties.getExchange(),
-                    notificationRabbitProperties.getWebPushSubscriptionReviewedRoutingKey(),
-                    message);
-            log.info("Published subscription reviewed notifications for subscriptionId={} reviewedBy={} decision={}",
-                    subscription.getId(),
-                    reviewer.getEmail(),
-                    approved ? "APPROVED" : "REJECTED");
+                    routingKey,
+                    payload);
             return true;
         } catch (AmqpException exception) {
-            log.error("Failed to publish subscription reviewed event for subscription {}", subscription.getId(),
-                    exception);
+            log.error("Failed to publish {} for subscriptionId={}", channel, subscriptionId, exception);
             return false;
         }
+    }
+
+    private String normalizeDecisionLabel(String decision) {
+        String normalized = decision == null ? "" : decision.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "APPROVED" -> "Da duoc duyet";
+            case "CANCELLED" -> "Da bi huy";
+            case "REJECTED" -> "Da bi tu choi";
+            default -> normalized;
+        };
+    }
+
+    private String buildReviewedNotificationTitle(String decision) {
+        String normalized = decision == null ? "" : decision.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "APPROVED" -> "Yeu cau Premium da duoc duyet";
+            case "CANCELLED" -> "Goi Premium da bi huy";
+            default -> "Yeu cau Premium da bi tu choi";
+        };
+    }
+
+    public record SubscriptionAutomationResult(Instant executedAt, int expiredCount, int reminderCount) {
     }
 
     private record RefundOutcome(String policy, BigDecimal refundRate, BigDecimal refundAmount) {

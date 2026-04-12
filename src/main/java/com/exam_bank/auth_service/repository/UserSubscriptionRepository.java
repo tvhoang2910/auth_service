@@ -86,6 +86,22 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
             @Param("status") SubscriptionStatus status,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = { "user", "plan" })
+    List<UserSubscription> findByStatusAndEndDateBefore(SubscriptionStatus status, Instant now);
+
+    @EntityGraph(attributePaths = { "user", "plan" })
+    @Query("""
+            select us from UserSubscription us
+            where us.status = :status
+              and us.endDate > :windowStart
+              and us.endDate <= :windowEnd
+              and us.expiryReminderSentAt is null
+            """)
+    List<UserSubscription> findForExpiryReminder(
+            @Param("status") SubscriptionStatus status,
+            @Param("windowStart") Instant windowStart,
+            @Param("windowEnd") Instant windowEnd);
+
     boolean existsByUserIdAndStatusAndStartDateLessThanEqualAndEndDateAfter(
             Long userId,
             SubscriptionStatus status,
