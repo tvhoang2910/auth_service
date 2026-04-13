@@ -1,5 +1,6 @@
 package com.exam_bank.auth_service.service;
 
+import com.exam_bank.auth_service.exception.StorageUnavailableException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,8 +14,10 @@ import org.springframework.data.redis.core.ValueOperations;
 import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -38,28 +41,25 @@ class RefreshTokenServiceTest {
     }
 
     @Test
-    @DisplayName("findByUserId returns fallback token when Redis store failed")
-    void findByUserIdReturnsFallbackWhenRedisStoreFails() {
+    @DisplayName("store fails closed when Redis is unavailable")
+    void storeFailsClosedWhenRedisUnavailable() {
         doThrow(new RuntimeException("Redis unavailable"))
                 .when(valueOperations)
                 .set(anyString(), anyString(), any(Duration.class));
 
-        service.store(10L, "refresh-token-1", Duration.ofMinutes(10));
-
-        assertThat(service.findByUserId(10L)).contains("refresh-token-1");
+        assertThatThrownBy(() -> service.store(10L, "refresh-token-1", Duration.ofMinutes(10)))
+                .isInstanceOf(StorageUnavailableException.class)
+                .hasMessage("Refresh token storage is temporarily unavailable");
     }
 
     @Test
-    @DisplayName("expired fallback entries are ignored and cleaned")
-    void expiredFallbackEntriesAreIgnoredAndCleaned() {
-        doThrow(new RuntimeException("Redis unavailable"))
-                .when(valueOperations)
-                .set(anyString(), anyString(), any(Duration.class));
+    @DisplayName("findByUserId fails closed when Redis is unavailable")
+    void findByUserIdFailsClosedWhenRedisUnavailable() {
+        when(valueOperations.get(anyString())).thenThrow(new RuntimeException("Redis unavailable"));
 
-        service.store(11L, "expired-token", Duration.ofSeconds(-1));
-
-        assertThat(service.findByUserId(11L)).isEmpty();
-        assertThat(service.resolveUserId("expired-token")).isEmpty();
+        assertThatThrownBy(() -> service.findByUserId(11L))
+                .isInstanceOf(StorageUnavailableException.class)
+                .hasMessage("Refresh token storage is temporarily unavailable");
     }
 
     @Test
@@ -71,18 +71,13 @@ class RefreshTokenServiceTest {
     }
 
     @Test
-    @DisplayName("revokeByToken clears fallback maps and Redis keys")
-    void revokeByTokenClearsFallbackAndRedisKeys() {
-        doThrow(new RuntimeException("Redis unavailable"))
-                .when(valueOperations)
-                .set(anyString(), anyString(), any(Duration.class));
-
-        service.store(42L, "refresh-token-42", Duration.ofMinutes(5));
+    @DisplayName("revokeByToken deletes token and user keys in Redis")
+    void revokeByTokenDeletesTokenAndUserKeys() {
+        when(valueOperations.get(anyString())).thenReturn("42");
 
         service.revokeByToken("refresh-token-42");
 
-        assertThat(service.findByUserId(42L)).isEmpty();
-        assertThat(service.resolveUserId("refresh-token-42")).isEmpty();
+        verify(stringRedisTemplate).delete(startsWith("auth:refresh:value:"));
         verify(stringRedisTemplate).delete("auth:refresh:user:42");
     }
 }

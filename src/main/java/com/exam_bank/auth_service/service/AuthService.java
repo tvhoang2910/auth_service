@@ -147,14 +147,13 @@ public class AuthService {
             throw exception;
         }
 
-        User user = existingUser
-                .orElseGet(() -> userRepository.findByEmailIgnoreCase(normalizedEmail)
-                        .orElseThrow(() -> {
-                            loginAttemptService.recordFailedAttempt(normalizedEmail);
-                            securityAuditService.failure(AUDIT_LOGIN, normalizedEmail,
-                                    "user-not-found-after-authentication");
-                            return new BadCredentialsException("Invalid credentials");
-                        }));
+        User user = userRepository.findByEmailIgnoreCase(normalizedEmail)
+                .orElseThrow(() -> {
+                    loginAttemptService.recordFailedAttempt(normalizedEmail);
+                    securityAuditService.failure(AUDIT_LOGIN, normalizedEmail,
+                            "user-not-found-after-authentication");
+                    return new BadCredentialsException("Invalid credentials");
+                });
 
         loginAttemptService.clearAttempts(normalizedEmail);
         securityAuditService.success(AUDIT_LOGIN, normalizedEmail, "token-pair-issued");

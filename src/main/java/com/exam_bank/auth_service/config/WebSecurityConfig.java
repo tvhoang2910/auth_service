@@ -4,6 +4,7 @@ import com.exam_bank.auth_service.config.properties.AuthJwtProperties;
 import com.exam_bank.auth_service.config.properties.CorsProperties;
 import com.exam_bank.auth_service.security.JwtBlacklistFilter;
 import com.exam_bank.auth_service.security.OAuth2AuthenticationSuccessHandler;
+import com.exam_bank.auth_service.security.OAuth2RedirectUriCaptureFilter;
 import com.exam_bank.auth_service.service.AppUserDetailsService;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.nimbusds.jose.util.Base64;
@@ -32,6 +33,7 @@ import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
@@ -56,6 +58,7 @@ public class WebSecurityConfig {
     private final AppUserDetailsService appUserDetailsService;
     private final AuthJwtProperties authJwtProperties;
     private final JwtBlacklistFilter jwtBlacklistFilter;
+    private final OAuth2RedirectUriCaptureFilter oAuth2RedirectUriCaptureFilter;
     private final CorsProperties corsProperties;
 
     public WebSecurityConfig(Environment environment,
@@ -63,12 +66,14 @@ public class WebSecurityConfig {
             AppUserDetailsService appUserDetailsService,
             AuthJwtProperties authJwtProperties,
             JwtBlacklistFilter jwtBlacklistFilter,
+            OAuth2RedirectUriCaptureFilter oAuth2RedirectUriCaptureFilter,
             CorsProperties corsProperties) {
         this.environment = environment;
         this.oAuth2AuthenticationSuccessHandler = oAuth2AuthenticationSuccessHandler;
         this.appUserDetailsService = appUserDetailsService;
         this.authJwtProperties = authJwtProperties;
         this.jwtBlacklistFilter = jwtBlacklistFilter;
+        this.oAuth2RedirectUriCaptureFilter = oAuth2RedirectUriCaptureFilter;
         this.corsProperties = corsProperties;
     }
 
@@ -105,6 +110,7 @@ public class WebSecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
                 .oauth2ResourceServer(
                         oauth2 -> oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
+                .addFilterBefore(oAuth2RedirectUriCaptureFilter, OAuth2AuthorizationRequestRedirectFilter.class)
                 .addFilterBefore(jwtBlacklistFilter, BearerTokenAuthenticationFilter.class);
 
         if (isGoogleOauthConfigured()) {

@@ -7,6 +7,7 @@ import com.exam_bank.auth_service.service.OAuth2LoginExchangeService;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.user.OAuth2User;
@@ -64,6 +65,11 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
             return UriComponentsBuilder.fromUriString(configuredRedirect);
         }
 
+        String capturedRedirect = consumeCapturedRedirectUri(request);
+        if (hasText(capturedRedirect)) {
+            return UriComponentsBuilder.fromUriString(capturedRedirect);
+        }
+
         String normalizedPath = hasText(configuredRedirect)
                 ? (configuredRedirect.startsWith("/") ? configuredRedirect : "/" + configuredRedirect)
                 : "/oauth2/success";
@@ -86,6 +92,21 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
 
         String baseUri = scheme.toLowerCase(Locale.ROOT) + "://" + host;
         return UriComponentsBuilder.fromUriString(baseUri).path(normalizedPath);
+    }
+
+    private String consumeCapturedRedirectUri(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        if (session == null) {
+            return null;
+        }
+
+        Object value = session.getAttribute(OAuth2RedirectUriCaptureFilter.SUCCESS_REDIRECT_URI_SESSION_KEY);
+        session.removeAttribute(OAuth2RedirectUriCaptureFilter.SUCCESS_REDIRECT_URI_SESSION_KEY);
+
+        if (value instanceof String redirectUri && hasText(redirectUri)) {
+            return redirectUri;
+        }
+        return null;
     }
 
     private String firstForwardedValue(String headerValue) {

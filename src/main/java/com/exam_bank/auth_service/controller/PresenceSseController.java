@@ -9,9 +9,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -35,9 +35,9 @@ public class PresenceSseController {
     @GetMapping(value = "/presence", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter presenceSse(
             @RequestHeader(value = "Authorization", required = false) String authHeader,
-            @RequestParam(value = "token", required = false) String tokenParam) {
+            @CookieValue(value = "access_token", required = false) String accessTokenCookie) {
 
-        String token = extractToken(authHeader, tokenParam);
+        String token = extractToken(authHeader, accessTokenCookie);
         if (token == null) {
             log.warn("SSE presence: no Bearer token provided");
             return new SseEmitter(0L);
@@ -102,8 +102,8 @@ public class PresenceSseController {
     @PostMapping("/presence/heartbeat")
     public ResponseEntity<Void> heartbeat(
             @RequestHeader(value = "Authorization", required = false) String authHeader,
-            @RequestParam(value = "token", required = false) String tokenParam) {
-        String token = extractToken(authHeader, tokenParam);
+            @CookieValue(value = "access_token", required = false) String accessTokenCookie) {
+        String token = extractToken(authHeader, accessTokenCookie);
         if (token == null) {
             return ResponseEntity.status(401).build();
         }
@@ -121,12 +121,12 @@ public class PresenceSseController {
         }
     }
 
-    private String extractToken(String authHeader, String tokenParam) {
+    private String extractToken(String authHeader, String accessTokenCookie) {
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             return authHeader.substring(7);
         }
-        if (tokenParam != null && !tokenParam.isBlank()) {
-            return tokenParam;
+        if (accessTokenCookie != null && !accessTokenCookie.isBlank()) {
+            return accessTokenCookie;
         }
         return null;
     }

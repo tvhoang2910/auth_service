@@ -826,7 +826,8 @@ public class SubscriptionRequestService {
                 now);
     }
 
-    private void publishReviewRequestedMessage(UserSubscription subscription) {
+    @Transactional
+ private void publishReviewRequestedMessage(UserSubscription subscription) {
         List<User> reviewers = userRepository.findByRoleInAndStatusTrue(List.of(Role.ADMIN, Role.CONTRIBUTOR));
         if (reviewers.isEmpty()) {
             log.warn("No active ADMIN/CONTRIBUTOR reviewers found for subscription {}", subscription.getId());
