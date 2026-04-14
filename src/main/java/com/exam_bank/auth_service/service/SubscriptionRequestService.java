@@ -354,6 +354,41 @@ public class SubscriptionRequestService {
         }
 
         @Transactional(readOnly = true)
+        public PaymentBillStorageService.BillFileContent getBillFileForReview(
+                        Long subscriptionId,
+                        String actorEmail) {
+                User actor = getUserByEmail(actorEmail);
+                UserSubscription subscription = userSubscriptionRepository.findById(subscriptionId)
+                                .orElseThrow(() -> new IllegalArgumentException("Subscription request not found"));
+
+                boolean isOwner = subscription.getUser() != null
+                                && subscription.getUser().getId() != null
+                                && subscription.getUser().getId().equals(actor.getId());
+                boolean isReviewer = actor.getRole() == Role.ADMIN || actor.getRole() == Role.CONTRIBUTOR;
+
+                if (!isOwner && !isReviewer) {
+                        log.warn("Forbidden bill access for actor={} role={} subscriptionId={} ownerId={}",
+                                        actor.getEmail(),
+                                        actor.getRole(),
+                                        subscriptionId,
+                                        subscription.getUser() == null ? null : subscription.getUser().getId());
+                        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                        "Only owner, ADMIN, or CONTRIBUTOR can view this bill");
+                }
+
+                if (!hasText(subscription.getBillImageUrl())) {
+                        throw new IllegalArgumentException("Bill image not found");
+                }
+
+                log.info("Actor {} requested bill image for subscriptionId={} ownerAccess={} reviewerAccess={}",
+                                actor.getEmail(),
+                                subscriptionId,
+                                isOwner,
+                                isReviewer);
+                return paymentBillStorageService.downloadBillByUrl(subscription.getBillImageUrl());
+        }
+
+        @Transactional(readOnly = true)
         public SubscriptionHistoryPageResponse getSubscriptionHistory(
                         String actorEmail,
                         String search,

@@ -12,6 +12,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -36,6 +37,7 @@ import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequest
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -88,6 +90,7 @@ public class WebSecurityConfig {
                                 "/register/resend-verification",
                                 "/register/verify-email",
                                 "/login",
+                                "/refresh",
                                 "/forgot-password",
                                 "/forgot-password/resend",
                                 "/forgot-password/verify-otp",
@@ -96,6 +99,7 @@ public class WebSecurityConfig {
                                 "/push-subscription/user/**",
                                 "/push-subscription/role/**",
                                 "/internal/users/**",
+                                "/users/*/avatar",
                                 "/actuator/health",
                                 "/actuator/health/**",
                                 "/oauth2/**",
@@ -107,6 +111,8 @@ public class WebSecurityConfig {
                 .authenticationProvider(daoAuthenticationProvider())
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
+                .exceptionHandling(exception -> exception
+                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
                 .oauth2ResourceServer(
                         oauth2 -> oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
                 .addFilterBefore(oAuth2RedirectUriCaptureFilter, OAuth2AuthorizationRequestRedirectFilter.class)

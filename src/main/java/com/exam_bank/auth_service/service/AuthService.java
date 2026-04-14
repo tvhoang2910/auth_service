@@ -434,18 +434,35 @@ public class AuthService {
 
         Optional<UserProfileResponse> cachedByEmail = userProfileCacheService.findByEmail(normalizedEmail);
         if (cachedByEmail.isPresent()) {
-            return cachedByEmail.get();
+            return ensurePublicAvatarUrl(cachedByEmail.get());
         }
 
         User user = userRepository.findByEmailIgnoreCase(normalizedEmail)
                 .orElseThrow(() -> new BadCredentialsException(USER_NOT_FOUND_MESSAGE));
 
         return userProfileCacheService.find(user.getId())
+                .map(this::ensurePublicAvatarUrl)
                 .orElseGet(() -> {
                     UserProfileResponse profile = mapToUserProfile(user);
                     userProfileCacheService.store(user.getId(), profile);
                     return profile;
                 });
+    }
+
+    @Transactional(readOnly = true)
+    public AvatarStorageService.AvatarFileContent getUserAvatar(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new IllegalArgumentException("User id is invalid");
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException(USER_NOT_FOUND_MESSAGE));
+
+        if (!hasText(user.getAvatarUrl())) {
+            throw new IllegalArgumentException("User avatar not found");
+        }
+
+        return avatarStorageService.downloadAvatarByUrl(user.getAvatarUrl());
     }
 
     @Transactional
@@ -678,13 +695,41 @@ public class AuthService {
                 .id(user.getId())
                 .email(user.getEmail())
                 .fullName(user.getFullName())
-                .avatarUrl(user.getAvatarUrl())
+                .avatarUrl(avatarStorageService.toPublicAvatarUrl(user.getId(), user.getAvatarUrl()))
                 .phoneNumber(user.getPhoneNumber())
                 .school(user.getSchool())
                 .subject(user.getSubject())
                 .role(user.getRole())
                 .premium(premium)
                 .build();
+    }
+
+    private UserProfileResponse ensurePublicAvatarUrl(UserProfileResponse profile) {
+        if (profile == null) {
+            return null;
+        }
+
+        String publicAvatarUrl = avatarStorageService.toPublicAvatarUrl(profile.id(), profile.avatarUrl());
+        if (equalsNullable(publicAvatarUrl, profile.avatarUrl())) {
+            return profile;
+        }
+
+        UserProfileResponse normalized = UserProfileResponse.builder()
+                .id(profile.id())
+                .email(profile.email())
+                .fullName(profile.fullName())
+                .avatarUrl(publicAvatarUrl)
+                .phoneNumber(profile.phoneNumber())
+                .school(profile.school())
+                .subject(profile.subject())
+                .role(profile.role())
+                .premium(profile.premium())
+                .build();
+
+        if (normalized.id() != null && normalized.id() > 0) {
+            userProfileCacheService.store(normalized.id(), normalized);
+        }
+        return normalized;
     }
 
     private boolean isPremiumActive(Long userId) {

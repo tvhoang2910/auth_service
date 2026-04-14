@@ -15,6 +15,7 @@ import com.exam_bank.auth_service.dto.response.ResetPasswordTokenResponse;
 import com.exam_bank.auth_service.dto.response.UserProfileResponse;
 import com.exam_bank.auth_service.repository.UserRepository;
 import com.exam_bank.auth_service.service.AuthService;
+import com.exam_bank.auth_service.service.AvatarStorageService;
 import com.exam_bank.auth_service.service.OAuth2LoginExchangeService;
 import com.exam_bank.auth_service.security.JwtService;
 import com.exam_bank.auth_service.service.PresenceService;
@@ -28,6 +29,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -180,5 +182,18 @@ public class AuthController {
                 file.getSize());
         UserProfileResponse response = authService.uploadMyAvatar(authentication.getName(), file);
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/users/{userId}/avatar")
+    public ResponseEntity<byte[]> getUserAvatar(@PathVariable Long userId) {
+        AvatarStorageService.AvatarFileContent avatar = authService.getUserAvatar(userId);
+        MediaType mediaType = MediaType.parseMediaType(avatar.contentType());
+
+        log.debug("getUserAvatar: userId={}, objectKey={}", userId, avatar.objectKey());
+        return ResponseEntity.ok()
+                .contentType(mediaType)
+                .header(HttpHeaders.CACHE_CONTROL, "public, max-age=300")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"avatar-" + userId + "\"")
+                .body(avatar.content());
     }
 }

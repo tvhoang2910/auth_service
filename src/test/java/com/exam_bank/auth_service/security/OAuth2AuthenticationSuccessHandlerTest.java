@@ -22,6 +22,9 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -98,6 +101,26 @@ class OAuth2AuthenticationSuccessHandlerTest {
                 .isEqualTo("https://unuxorious-shana-cavalierly.ngrok-free.dev/oauth2/success?code=code-789");
     }
 
+    @Test
+    @DisplayName("redirects to frontend with oauth2_error when Google user account is locked")
+    void redirectsToFrontendWhenGoogleUserAccountIsLocked() throws Exception {
+        when(appOauth2Properties.getSuccessRedirectUrl()).thenReturn("/oauth2/success");
+        when(authService.upsertGoogleUser("user@example.com", "Exam User")).thenReturn(lockedUser(404L));
+
+        MockHttpServletRequest request = buildCallbackRequest();
+        request.getSession(true)
+                .setAttribute(OAuth2RedirectUriCaptureFilter.SUCCESS_REDIRECT_URI_SESSION_KEY,
+                        "http://localhost:5173/oauth2/success");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        handler.onAuthenticationSuccess(request, response, buildAuthentication());
+
+        assertThat(response.getStatus()).isEqualTo(302);
+        assertThat(response.getRedirectedUrl())
+                .isEqualTo("http://localhost:5173/oauth2/success?oauth2_error=account_locked");
+        verify(oauth2LoginExchangeService, never()).issueCode(anyLong());
+    }
+
     private Authentication buildAuthentication() {
         OAuth2User oauth2User = new DefaultOAuth2User(
                 List.of(new SimpleGrantedAuthority("ROLE_USER")),
@@ -120,6 +143,13 @@ class OAuth2AuthenticationSuccessHandlerTest {
         User user = new User();
         user.setId(id);
         user.setStatus(true);
+        return user;
+    }
+
+    private User lockedUser(Long id) {
+        User user = new User();
+        user.setId(id);
+        user.setStatus(false);
         return user;
     }
 }

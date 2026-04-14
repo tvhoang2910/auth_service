@@ -52,6 +52,7 @@ public class AdminUserService {
     private final NotificationRabbitProperties notificationRabbitProperties;
     private final UserSubscriptionRepository userSubscriptionRepository;
     private final AuthUserProfileEventPublisher authUserProfileEventPublisher;
+    private final AvatarStorageService avatarStorageService;
 
     @Transactional(readOnly = true)
     public Page<AdminUserItemResponse> getUsers(String search, Role role, Pageable pageable) {
@@ -309,7 +310,7 @@ public class AdminUserService {
                 user.getId(),
                 user.getEmail(),
                 user.getFullName(),
-                user.getAvatarUrl(),
+                avatarStorageService.toPublicAvatarUrl(user.getId(), user.getAvatarUrl()),
                 user.getPhoneNumber(),
                 user.getSchool(),
                 user.getSubject(),

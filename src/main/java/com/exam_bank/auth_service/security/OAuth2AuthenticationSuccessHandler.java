@@ -24,6 +24,9 @@ import static org.springframework.util.StringUtils.hasText;
 @RequiredArgsConstructor
 public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
 
+    private static final String OAUTH2_ERROR_QUERY_PARAM = "oauth2_error";
+    private static final String OAUTH2_ERROR_ACCOUNT_LOCKED = "account_locked";
+
     private final AuthService authService;
     private final OAuth2LoginExchangeService oauth2LoginExchangeService;
     private final AppOauth2Properties appOauth2Properties;
@@ -46,13 +49,25 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
 
         User user = authService.upsertGoogleUser(email, fullName);
         if (!user.isStatus()) {
-            response.sendError(HttpServletResponse.SC_FORBIDDEN, "Account is locked");
+            sendOAuth2ErrorRedirect(request, response, OAUTH2_ERROR_ACCOUNT_LOCKED);
             return;
         }
         String exchangeCode = oauth2LoginExchangeService.issueCode(user.getId());
 
         String targetUrl = resolveRedirectUriBuilder(request, appOauth2Properties.getSuccessRedirectUrl())
                 .queryParam("code", exchangeCode)
+                .build(true)
+                .toUriString();
+
+        getRedirectStrategy().sendRedirect(request, response, targetUrl);
+    }
+
+    private void sendOAuth2ErrorRedirect(HttpServletRequest request,
+            HttpServletResponse response,
+            String errorCode) throws IOException {
+        String targetUrl = resolveRedirectUriBuilder(request, appOauth2Properties.getSuccessRedirectUrl())
+                .replaceQueryParam("code")
+                .replaceQueryParam(OAUTH2_ERROR_QUERY_PARAM, errorCode)
                 .build(true)
                 .toUriString();
 

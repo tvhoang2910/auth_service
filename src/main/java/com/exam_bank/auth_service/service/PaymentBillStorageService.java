@@ -3,9 +3,11 @@ package com.exam_bank.auth_service.service;
 import com.exam_bank.auth_service.config.properties.MinioProperties;
 import com.exam_bank.auth_service.exception.StorageUnavailableException;
 import io.minio.BucketExistsArgs;
+import io.minio.GetObjectArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
+import io.minio.StatObjectArgs;
 import io.minio.SetBucketPolicyArgs;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,6 +16,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
+import java.net.URI;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -72,6 +75,37 @@ public class PaymentBillStorageService {
         }
     }
 
+    public BillFileContent downloadBillByUrl(String billImageUrl) {
+        if (!StringUtils.hasText(billImageUrl)) {
+            throw new IllegalArgumentException("Bill image URL is required");
+        }
+
+        String bucketName = minioProperties.getBucketName();
+        String objectKey = resolveObjectKey(billImageUrl, bucketName);
+
+        try (InputStream inputStream = minioClient.getObject(GetObjectArgs.builder()
+                .bucket(bucketName)
+                .object(objectKey)
+                .build())) {
+            String contentType = normalizeContentType(minioClient.statObject(StatObjectArgs.builder()
+                    .bucket(bucketName)
+                    .object(objectKey)
+                    .build()).contentType());
+            byte[] content = inputStream.readAllBytes();
+            return new BillFileContent(content, contentType, objectKey);
+        } catch (Exception exception) {
+            log.error(
+                    "Failed to read bill image from MinIO: bucket={}, endpoint={}, objectKey={}, sourceUrl={}, cause={}",
+                    bucketName,
+                    minioProperties.getUrl(),
+                    objectKey,
+                    billImageUrl,
+                    exception.getMessage(),
+                    exception);
+            throw new StorageUnavailableException("Bill image is temporarily unavailable", exception);
+        }
+    }
+
     private void ensureBucketExists() {
         if (bucketInitialized.get()) {
             return;
@@ -114,6 +148,30 @@ public class PaymentBillStorageService {
         return "subscription-bills/user-" + userId + "/" + UUID.randomUUID() + extension;
     }
 
+    private String resolveObjectKey(String sourceUrl, String bucketName) {
+        String candidate = sourceUrl.trim();
+        try {
+            URI uri = new URI(candidate);
+            if (StringUtils.hasText(uri.getPath())) {
+                candidate = uri.getPath();
+            }
+        } catch (Exception ignored) {
+            // Keep original string when URI parsing fails.
+        }
+
+        candidate = candidate.replaceFirst("^/+", "");
+        if (!StringUtils.hasText(candidate)) {
+            throw new IllegalArgumentException("Bill image URL is invalid");
+        }
+
+        String bucketPrefix = bucketName + "/";
+        if (candidate.startsWith(bucketPrefix)) {
+            return candidate.substring(bucketPrefix.length());
+        }
+
+        return candidate;
+    }
+
     private String extractExtension(String originalFilename) {
         String extension = StringUtils.getFilenameExtension(originalFilename);
         if (!StringUtils.hasText(extension)) {
@@ -144,5 +202,8 @@ public class PaymentBillStorageService {
                 "\"Resource\":[\"arn:aws:s3:::" + bucketName + "/*\"]" +
                 "}]" +
                 "}";
+    }
+
+    public record BillFileContent(byte[] content, String contentType, String objectKey) {
     }
 }

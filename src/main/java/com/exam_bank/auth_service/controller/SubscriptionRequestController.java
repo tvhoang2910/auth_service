@@ -12,6 +12,7 @@ import com.exam_bank.auth_service.dto.response.SubscriptionQueuePageResponse;
 import com.exam_bank.auth_service.dto.response.UserSubscriptionQueueItemResponse;
 import com.exam_bank.auth_service.entity.SubscriptionStatus;
 import com.exam_bank.auth_service.service.SubscriptionRequestService;
+import com.exam_bank.auth_service.service.PaymentBillStorageService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +20,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -274,6 +276,25 @@ public class SubscriptionRequestController {
                 subscriptionId,
                 approvals.size());
         return ResponseEntity.ok(approvals);
+    }
+
+    @GetMapping("/purchase-requests/{subscriptionId}/bill")
+    public ResponseEntity<byte[]> viewBillImage(
+            @PathVariable Long subscriptionId,
+            Authentication authentication) {
+        PaymentBillStorageService.BillFileContent bill = subscriptionRequestService
+                .getBillFileForReview(subscriptionId, authentication.getName());
+        MediaType mediaType = MediaType.parseMediaType(bill.contentType());
+
+        log.info("viewBillImage: actor={}, subscriptionId={}, objectKey={}",
+                authentication.getName(),
+                subscriptionId,
+                bill.objectKey());
+        return ResponseEntity.ok()
+                .contentType(mediaType)
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"bill-" + subscriptionId + "\"")
+                .body(bill.content());
     }
 
     private Pageable buildHistoryPageable(int page, int size, String rawSort) {
