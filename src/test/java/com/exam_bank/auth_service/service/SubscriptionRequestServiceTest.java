@@ -159,7 +159,7 @@ class SubscriptionRequestServiceTest {
                 CancelSubscriptionResponse response = service.cancelSubscription(
                                 22L,
                                 "admin@example.com",
-                                new CancelSubscriptionRequest("Khach hang yeu cau huy"));
+                                new CancelSubscriptionRequest("Khách hàng yêu cầu hủy"));
 
                 assertThat(response.currentStatus()).isEqualTo(SubscriptionStatus.CANCELLED);
                 assertThat(response.previousStatus()).isEqualTo(SubscriptionStatus.APPROVED);
@@ -170,7 +170,7 @@ class SubscriptionRequestServiceTest {
                 verify(userSubscriptionRepository).save(subscriptionCaptor.capture());
                 UserSubscription savedSubscription = subscriptionCaptor.getValue();
                 assertThat(savedSubscription.getStatus()).isEqualTo(SubscriptionStatus.CANCELLED);
-                assertThat(savedSubscription.getCancellationReason()).isEqualTo("Khach hang yeu cau huy");
+                assertThat(savedSubscription.getCancellationReason()).isEqualTo("Khách hàng yêu cầu hủy");
                 assertThat(savedSubscription.getCancelledByEmail()).isEqualTo("admin@example.com");
 
                 verify(userProfileCacheService).evict(subscriber.getId(), subscriber.getEmail());
@@ -206,7 +206,7 @@ class SubscriptionRequestServiceTest {
                                 .thenReturn("notification.send.webpush.subscription-reviewed");
 
                 service.cancelSubscription(23L, "admin@example.com",
-                                new CancelSubscriptionRequest("Khach hang yeu cau huy"));
+                                new CancelSubscriptionRequest("Khách hàng yêu cầu hủy"));
 
                 ArgumentCaptor<SubscriptionReviewedMessage> reviewedMessageCaptor = ArgumentCaptor
                                 .forClass(SubscriptionReviewedMessage.class);
@@ -253,7 +253,7 @@ class SubscriptionRequestServiceTest {
                                 .thenReturn("notification.send.webpush.subscription-reviewed");
 
                 service.cancelSubscription(24L, "admin@example.com",
-                                new CancelSubscriptionRequest("Khach hang yeu cau huy"));
+                                new CancelSubscriptionRequest("Khách hàng yêu cầu hủy"));
 
                 verify(rabbitTemplate, never()).convertAndSend(
                                 eq("notification.events"),
@@ -266,8 +266,8 @@ class SubscriptionRequestServiceTest {
                 verify(notificationCenterService).createNotification(
                                 eq(subscriber),
                                 eq("SUBSCRIPTION_REVIEWED"),
-                                eq("Goi Premium da bi huy"),
-                                eq("Goi Premium 30: Da bi huy"),
+                                eq("Gói Premium đã bị hủy"),
+                                eq("Gói Premium 30: Đã bị hủy"),
                                 eq("/dashboard/subscription-payments"));
         }
 
@@ -455,7 +455,7 @@ class SubscriptionRequestServiceTest {
                 verify(notificationCenterService).createNotification(
                                 eq(reminderUser),
                                 eq("SUBSCRIPTION_EXPIRY_REMINDER"),
-                                eq("Goi Premium sap het han"),
+                                eq("Gói Premium sắp hết hạn"),
                                 anyString(),
                                 eq("/dashboard/subscription-payments"));
         }

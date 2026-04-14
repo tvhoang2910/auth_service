@@ -89,8 +89,8 @@ class NotificationCenterServiceTest {
         notification.setId(101L);
         notification.setUser(user);
         notification.setType("SUBSCRIPTION_REVIEWED");
-        notification.setTitle("Yeu cau Premium da duoc duyet");
-        notification.setMessage("Goi Premium 30 da duoc duyet");
+        notification.setTitle("Yêu cầu Premium đã được duyệt");
+        notification.setMessage("Gói Premium 30 đã được duyệt");
         notification.setActionUrl("/dashboard/subscription-payments");
         notification.setCreatedAt(Instant.parse("2026-04-11T12:00:00Z"));
 
@@ -115,8 +115,8 @@ class NotificationCenterServiceTest {
         notification.setId(102L);
         notification.setUser(user);
         notification.setType("SUBSCRIPTION_EXPIRY_REMINDER");
-        notification.setTitle("Goi Premium sap het han");
-        notification.setMessage("Het han vao 2026-04-12T00:05:00Z");
+        notification.setTitle("Gói Premium sắp hết hạn");
+        notification.setMessage("Hết hạn vào 2026-04-12T00:05:00Z");
 
         when(userRepository.findByEmailIgnoreCase("user@example.com")).thenReturn(Optional.of(user));
         when(userNotificationRepository.findByIdAndUserId(102L, 1L)).thenReturn(Optional.of(notification));
@@ -137,8 +137,8 @@ class NotificationCenterServiceTest {
         notification.setId(103L);
         notification.setUser(user);
         notification.setType("SUBSCRIPTION_REVIEWED");
-        notification.setTitle("Yeu cau Premium da duoc duyet");
-        notification.setMessage("Goi Premium 30 da duoc duyet");
+        notification.setTitle("Yêu cầu Premium đã được duyệt");
+        notification.setMessage("Gói Premium 30 đã được duyệt");
         Instant existingReadAt = Instant.parse("2026-04-11T12:30:00Z");
         notification.setReadAt(existingReadAt);
 
@@ -175,8 +175,8 @@ class NotificationCenterServiceTest {
         service.createNotification(
                 invalidUser,
                 "SUBSCRIPTION_REVIEWED",
-                "Yeu cau Premium da duoc duyet",
-                "Goi Premium 30 da duoc duyet",
+                "Yêu cầu Premium đã được duyệt",
+                "Gói Premium 30 đã được duyệt",
                 "/dashboard/subscription-payments");
 
         verify(userNotificationRepository, never()).save(any(UserNotification.class));

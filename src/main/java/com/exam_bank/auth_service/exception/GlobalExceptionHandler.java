@@ -75,7 +75,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<Map<String, Object>> handleMaxUploadSize(MaxUploadSizeExceededException exception) {
         return buildResponse(HttpStatus.valueOf(413),
-                "Kich thuoc tep vuot qua gioi han cho phep (toi da 20MB)");
+                "Kích thước tệp vượt quá giới hạn cho phép (tối đa 20MB)");
     }
 
     @ExceptionHandler(Exception.class)
