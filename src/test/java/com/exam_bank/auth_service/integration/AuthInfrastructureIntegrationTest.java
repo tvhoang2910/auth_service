@@ -8,6 +8,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -26,41 +27,8 @@ import java.time.Duration;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Testcontainers(disabledWithoutDocker = true)
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE, properties = {
-        "spring.main.lazy-initialization=true",
-        "spring.jpa.hibernate.ddl-auto=update",
-        "spring.task.scheduling.enabled=false",
-        "auth.jwt.issuer=test_issuer",
-        "auth.jwt.expiration-seconds=3600",
-        "auth.jwt.secret=VjNyeVNlY3VyZVNlY3JldEtleUZvckF1dGhTZXJ2aWNlMTIzNDU2Nzg5MDE=",
-        "auth.refresh-token.expiration-seconds=604800",
-        "auth.user-profile-cache.ttl-seconds=7200",
-        "auth.forgot-password.otp-ttl-seconds=300",
-        "auth.email-verification.otp-ttl-seconds=300",
-        "auth.forgot-password.rate-limit.forgot-max-attempts=5",
-        "auth.forgot-password.rate-limit.forgot-window-seconds=300",
-        "auth.forgot-password.rate-limit.verify-max-attempts=10",
-        "auth.forgot-password.rate-limit.verify-window-seconds=300",
-        "auth.forgot-password.rate-limit.resend-max-attempts=3",
-        "auth.forgot-password.rate-limit.resend-window-seconds=300",
-        "app.cors.allowed-origins=http://localhost:5173",
-        "auth.notification.exchange=notification.events",
-        "auth.notification.email-otp-routing-key=notification.send.email.otp",
-        "auth.notification.email-account-locked-routing-key=notification.send.email.account-locked",
-        "auth.notification.email-account-unlocked-routing-key=notification.send.email.account-unlocked",
-        "auth.notification.email-queue=notification-service.email-queue",
-        "auth.notification.email-subscription-review-routing-key=notification.send.email.subscription-review-requested",
-        "auth.notification.web-push-subscription-review-routing-key=notification.send.webpush.subscription-review-requested",
-        "auth.notification.email-subscription-reviewed-routing-key=notification.send.email.subscription-reviewed",
-        "auth.notification.web-push-subscription-reviewed-routing-key=notification.send.webpush.subscription-reviewed",
-        "auth.notification.email-subscription-expiry-reminder-routing-key=notification.send.email.subscription-expiry-reminder",
-        "auth.notification.web-push-subscription-expiry-reminder-routing-key=notification.send.webpush.subscription-expiry-reminder",
-        "management.health.rabbit.enabled=false",
-        "minio.url=http://localhost:9000",
-        "minio.access-key=test-access",
-        "minio.secret-key=test-secret",
-        "minio.bucket-name=test-bucket"
-})
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
+@TestPropertySource(locations = "classpath:auth-infrastructure-test.properties")
 @DisplayName("Auth Infrastructure Integration Test")
 @SuppressWarnings("resource")
 class AuthInfrastructureIntegrationTest {
