@@ -8,12 +8,14 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+import com.exam_bank.auth_service.service.SubscriptionRequestService;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -29,18 +31,18 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.jpa.hibernate.ddl-auto=update",
         "spring.task.scheduling.enabled=false",
         "auth.jwt.issuer=test_issuer",
-    "auth.jwt.expiration-seconds=3600",
+        "auth.jwt.expiration-seconds=3600",
         "auth.jwt.secret=VjNyeVNlY3VyZVNlY3JldEtleUZvckF1dGhTZXJ2aWNlMTIzNDU2Nzg5MDE=",
-    "auth.refresh-token.expiration-seconds=604800",
-    "auth.user-profile-cache.ttl-seconds=7200",
-    "auth.forgot-password.otp-ttl-seconds=300",
-    "auth.email-verification.otp-ttl-seconds=300",
-    "auth.forgot-password.rate-limit.forgot-max-attempts=5",
-    "auth.forgot-password.rate-limit.forgot-window-seconds=300",
-    "auth.forgot-password.rate-limit.verify-max-attempts=10",
-    "auth.forgot-password.rate-limit.verify-window-seconds=300",
-    "auth.forgot-password.rate-limit.resend-max-attempts=3",
-    "auth.forgot-password.rate-limit.resend-window-seconds=300",
+        "auth.refresh-token.expiration-seconds=604800",
+        "auth.user-profile-cache.ttl-seconds=7200",
+        "auth.forgot-password.otp-ttl-seconds=300",
+        "auth.email-verification.otp-ttl-seconds=300",
+        "auth.forgot-password.rate-limit.forgot-max-attempts=5",
+        "auth.forgot-password.rate-limit.forgot-window-seconds=300",
+        "auth.forgot-password.rate-limit.verify-max-attempts=10",
+        "auth.forgot-password.rate-limit.verify-window-seconds=300",
+        "auth.forgot-password.rate-limit.resend-max-attempts=3",
+        "auth.forgot-password.rate-limit.resend-window-seconds=300",
         "app.cors.allowed-origins=http://localhost:5173",
         "minio.url=http://localhost:9000",
         "minio.access-key=test-access",
@@ -87,6 +89,9 @@ class AuthInfrastructureIntegrationTest {
 
     @Autowired
     private RabbitTemplate rabbitTemplate;
+
+    @MockitoBean
+    private SubscriptionRequestService subscriptionRequestService;
 
     @Test
     @DisplayName("connects to Postgres, Redis, and RabbitMQ containers")
