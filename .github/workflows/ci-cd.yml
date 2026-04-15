@@ -1,0 +1,75 @@
+name: auth_service ci-cd
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auth-service-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: '21'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  quality:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+          cache-dependency-path: |
+            pom.xml
+            auth_service/pom.xml
+
+      - name: Detect project directory
+        id: project-dir
+        shell: bash
+        run: |
+          if [ -f pom.xml ] && [ -f mvnw ]; then
+            echo "dir=." >> "$GITHUB_OUTPUT"
+          elif [ -f auth_service/pom.xml ] && [ -f auth_service/mvnw ]; then
+            echo "dir=auth_service" >> "$GITHUB_OUTPUT"
+          else
+            echo "Could not find pom.xml and mvnw in root or auth_service/" >&2
+            exit 1
+          fi
+
+      - name: Ensure Maven wrapper executable
+        working-directory: ${{ steps.project-dir.outputs.dir }}
+        run: chmod +x mvnw
+
+      - name: Build and unit/integration tests
+        working-directory: ${{ steps.project-dir.outputs.dir }}
+        run: ./mvnw -B -ntp clean verify
+
+      - name: Upload surefire reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auth-service-test-reports
+          path: |
+            ${{ steps.project-dir.outputs.dir }}/target/surefire-reports/**
+            ${{ steps.project-dir.outputs.dir }}/target/failsafe-reports/**
+          if-no-files-found: warn
