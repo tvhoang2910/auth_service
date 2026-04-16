@@ -1,5 +1,6 @@
 package com.exam_bank.auth_service.exception;
 
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -7,6 +8,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -76,6 +78,14 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleMaxUploadSize(MaxUploadSizeExceededException exception) {
         return buildResponse(HttpStatus.valueOf(413),
                 "Kích thước tệp vượt quá giới hạn cho phép (tối đa 20MB)");
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<Map<String, Object>> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException exception,
+            HttpServletRequest request) {
+        log.warn("Method not supported: method={}, uri={}", exception.getMethod(), request.getRequestURI());
+        return buildResponse(HttpStatus.METHOD_NOT_ALLOWED, exception.getMessage());
     }
 
     @ExceptionHandler(Exception.class)
