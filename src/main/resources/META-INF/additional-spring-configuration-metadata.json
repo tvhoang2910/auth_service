@@ -171,6 +171,16 @@
       "description": "Routing key for subscription expiry reminder web-push notifications."
     },
     {
+      "name": "auth.notification.admin-alert-routing-key",
+      "type": "java.lang.String",
+      "description": "Routing key for broadcast/admin alert notification events."
+    },
+    {
+      "name": "auth.notification.in-app-admin-alert-queue",
+      "type": "java.lang.String",
+      "description": "Queue name used by auth service to persist in-app admin alerts."
+    },
+    {
       "name": "auth.subscription.automation.expire-cron",
       "type": "java.lang.String",
       "description": "Cron expression for daily subscription expiration automation."

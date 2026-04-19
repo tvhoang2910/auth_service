@@ -27,6 +27,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.mock.web.MockMultipartFile;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -83,6 +84,68 @@ class SubscriptionRequestServiceTest {
 
         @InjectMocks
         private SubscriptionRequestService service;
+
+        @Test
+        @DisplayName("createPurchaseRequest rejects when user already has pending premium request")
+        void createPurchaseRequestRejectsWhenPendingRequestExists() {
+                User subscriber = buildUser(2L, "user@example.com", "Premium User", Role.USER);
+                PremiumPlan plan = buildPlan(3L, "Premium 30", BigDecimal.valueOf(199000));
+                MockMultipartFile billFile = new MockMultipartFile("bill", "bill.png", "image/png",
+                                new byte[] { 1, 2, 3 });
+
+                when(userRepository.findByEmailIgnoreCase("user@example.com")).thenReturn(Optional.of(subscriber));
+                when(premiumPlanRepository.findById(3L)).thenReturn(Optional.of(plan));
+                when(userSubscriptionRepository.existsByUserIdAndStatus(2L, SubscriptionStatus.PENDING_REVIEW))
+                                .thenReturn(true);
+
+                assertThatThrownBy(() -> service.createPurchaseRequest(
+                                "user@example.com",
+                                3L,
+                                "bank_transfer",
+                                "TXN-100",
+                                null,
+                                false,
+                                billFile))
+                                .isInstanceOf(IllegalArgumentException.class)
+                                .hasMessage("You already have a pending Premium request");
+
+                verify(userSubscriptionRepository, never()).save(any(UserSubscription.class));
+                verify(paymentBillStorageService, never()).uploadBill(any(), any());
+        }
+
+        @Test
+        @DisplayName("createPurchaseRequest rejects when user already has active premium subscription")
+        void createPurchaseRequestRejectsWhenActivePremiumExists() {
+                User subscriber = buildUser(2L, "user@example.com", "Premium User", Role.USER);
+                PremiumPlan plan = buildPlan(4L, "Premium 90", BigDecimal.valueOf(399000));
+                MockMultipartFile billFile = new MockMultipartFile("bill", "bill.png", "image/png",
+                                new byte[] { 9, 8, 7 });
+
+                when(userRepository.findByEmailIgnoreCase("user@example.com")).thenReturn(Optional.of(subscriber));
+                when(premiumPlanRepository.findById(4L)).thenReturn(Optional.of(plan));
+                when(userSubscriptionRepository.existsByUserIdAndStatus(2L, SubscriptionStatus.PENDING_REVIEW))
+                                .thenReturn(false);
+                when(userSubscriptionRepository.existsByUserIdAndStatusAndStartDateLessThanEqualAndEndDateAfter(
+                                eq(2L),
+                                eq(SubscriptionStatus.APPROVED),
+                                any(Instant.class),
+                                any(Instant.class)))
+                                .thenReturn(true);
+
+                assertThatThrownBy(() -> service.createPurchaseRequest(
+                                "user@example.com",
+                                4L,
+                                "bank_transfer",
+                                "TXN-200",
+                                null,
+                                false,
+                                billFile))
+                                .isInstanceOf(IllegalArgumentException.class)
+                                .hasMessage("You already have an active Premium subscription");
+
+                verify(userSubscriptionRepository, never()).save(any(UserSubscription.class));
+                verify(paymentBillStorageService, never()).uploadBill(any(), any());
+        }
 
         @Test
         @DisplayName("getSubscriptionHistory returns mapped page for ADMIN")

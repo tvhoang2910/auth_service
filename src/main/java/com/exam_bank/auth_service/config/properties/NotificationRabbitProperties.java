@@ -44,4 +44,10 @@ public class NotificationRabbitProperties {
 
     @NotBlank
     private String webPushSubscriptionExpiryReminderRoutingKey;
+
+    @NotBlank
+    private String adminAlertRoutingKey;
+
+    @NotBlank
+    private String inAppAdminAlertQueue;
 }

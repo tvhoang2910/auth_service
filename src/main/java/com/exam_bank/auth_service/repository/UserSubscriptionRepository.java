@@ -1,6 +1,5 @@
 package com.exam_bank.auth_service.repository;
 
-import com.exam_bank.auth_service.entity.PremiumPlan;
 import com.exam_bank.auth_service.entity.SubscriptionStatus;
 import com.exam_bank.auth_service.entity.User;
 import com.exam_bank.auth_service.entity.UserSubscription;
@@ -13,7 +12,6 @@ import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.Collection;
 import java.util.List;
 
 public interface UserSubscriptionRepository extends JpaRepository<UserSubscription, Long> {
@@ -47,7 +45,7 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
             @Param("toDate") Instant toDate,
             Pageable pageable);
 
-    boolean existsByUserAndPlanAndStatusIn(User user, PremiumPlan plan, Collection<SubscriptionStatus> statuses);
+    boolean existsByUserIdAndStatus(Long userId, SubscriptionStatus status);
 
     boolean existsByPlanId(Long planId);
 

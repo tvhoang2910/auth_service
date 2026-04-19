@@ -46,10 +46,8 @@ import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 
 import static org.springframework.util.StringUtils.hasText;
 
@@ -64,9 +62,6 @@ public class SubscriptionRequestService {
         private static final String NOTIFICATION_TYPE_SUBSCRIPTION_REVIEWED = "SUBSCRIPTION_REVIEWED";
         private static final String NOTIFICATION_TYPE_SUBSCRIPTION_EXPIRY_REMINDER = "SUBSCRIPTION_EXPIRY_REMINDER";
         private static final BigDecimal ZERO_MONEY = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-        private static final Set<SubscriptionStatus> BLOCKING_DUPLICATE_STATUSES = EnumSet.of(
-                        SubscriptionStatus.PENDING_REVIEW,
-                        SubscriptionStatus.APPROVED);
 
         private final UserRepository userRepository;
         private final PremiumPlanRepository premiumPlanRepository;
@@ -212,7 +207,7 @@ public class SubscriptionRequestService {
                 PremiumPlan plan = premiumPlanRepository.findById(planId)
                                 .filter(PremiumPlan::isActive)
                                 .orElseThrow(() -> new IllegalArgumentException("Premium plan not found or inactive"));
-                ensureNoBlockingDuplicateRequest(user, plan);
+                ensureNoBlockingDuplicateRequest(user, plan.getId());
 
                 String billImageUrl = paymentBillStorageService.uploadBill(user.getId(), billFile);
 
@@ -847,18 +842,34 @@ public class SubscriptionRequestService {
                 return remindedSubscriptions.size();
         }
 
-        private void ensureNoBlockingDuplicateRequest(User user, PremiumPlan plan) {
-                boolean exists = userSubscriptionRepository.existsByUserAndPlanAndStatusIn(
-                                user,
-                                plan,
-                                BLOCKING_DUPLICATE_STATUSES);
-                if (exists) {
-                        log.warn("Duplicate subscription request blocked for user={} planId={} statuses={}",
+        private void ensureNoBlockingDuplicateRequest(User user, Long requestedPlanId) {
+                Long userId = user.getId();
+                if (userId == null || userId <= 0) {
+                        throw new IllegalArgumentException("User id is invalid");
+                }
+
+                boolean hasPendingRequest = userSubscriptionRepository.existsByUserIdAndStatus(
+                                userId,
+                                SubscriptionStatus.PENDING_REVIEW);
+                if (hasPendingRequest) {
+                        log.warn("Duplicate subscription request blocked for user={} requestedPlanId={} reason=PENDING_REVIEW_EXISTS",
                                         user.getEmail(),
-                                        plan.getId(),
-                                        BLOCKING_DUPLICATE_STATUSES);
-                        throw new IllegalArgumentException(
-                                        "You already have a pending or approved request for this plan");
+                                        requestedPlanId);
+                        throw new IllegalArgumentException("You already have a pending Premium request");
+                }
+
+                Instant now = Instant.now();
+                boolean hasActivePremium = userSubscriptionRepository
+                                .existsByUserIdAndStatusAndStartDateLessThanEqualAndEndDateAfter(
+                                                userId,
+                                                SubscriptionStatus.APPROVED,
+                                                now,
+                                                now);
+                if (hasActivePremium) {
+                        log.warn("Duplicate subscription request blocked for user={} requestedPlanId={} reason=ACTIVE_PREMIUM_EXISTS",
+                                        user.getEmail(),
+                                        requestedPlanId);
+                        throw new IllegalArgumentException("You already have an active Premium subscription");
                 }
         }
 
