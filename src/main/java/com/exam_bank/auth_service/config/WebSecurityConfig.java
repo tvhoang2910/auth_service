@@ -90,6 +90,7 @@ public class WebSecurityConfig {
                                 "/register/resend-verification",
                                 "/register/verify-email",
                                 "/login",
+                                "/activate",
                                 "/refresh",
                                 "/forgot-password",
                                 "/forgot-password/resend",

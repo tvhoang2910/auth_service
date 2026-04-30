@@ -9,6 +9,7 @@ import com.exam_bank.auth_service.dto.request.VerifyForgotPasswordOtpRequest;
 import com.exam_bank.auth_service.dto.request.VerifyEmailOtpRequest;
 import com.exam_bank.auth_service.dto.request.ResetPasswordRequest;
 import com.exam_bank.auth_service.dto.request.UpdateMyProfileRequest;
+import com.exam_bank.auth_service.dto.request.ActivateAccountRequest;
 import com.exam_bank.auth_service.dto.response.AuthTokenResponse;
 import com.exam_bank.auth_service.dto.response.RegisterResponse;
 import com.exam_bank.auth_service.dto.response.ResetPasswordTokenResponse;
@@ -75,6 +76,13 @@ public class AuthController {
         log.info("verifyRegisterEmail: email={}", request.email());
         authService.verifyRegisterEmailOtp(request.email(), request.otp());
         return ResponseEntity.ok(Map.of(MESSAGE_KEY, "Email verified successfully"));
+    }
+
+    @PostMapping("/activate")
+    public ResponseEntity<Map<String, String>> activateAccount(@Valid @RequestBody ActivateAccountRequest request) {
+        log.info("activateAccount: email={}", request.email());
+        authService.activateAccount(request);
+        return ResponseEntity.ok(Map.of(MESSAGE_KEY, "Account activated successfully. You can now login."));
     }
 
     @PostMapping("/login")

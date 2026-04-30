@@ -4,6 +4,7 @@ import com.exam_bank.auth_service.dto.request.RegisterRequest;
 import com.exam_bank.auth_service.dto.request.LoginRequest;
 import com.exam_bank.auth_service.dto.request.RefreshTokenRequest;
 import com.exam_bank.auth_service.dto.request.UpdateMyProfileRequest;
+import com.exam_bank.auth_service.dto.request.ActivateAccountRequest;
 import com.exam_bank.auth_service.dto.message.EmailOtpMessage;
 import com.exam_bank.auth_service.dto.response.AuthTokenResponse;
 import com.exam_bank.auth_service.dto.response.RegisterResponse;
@@ -62,6 +63,8 @@ public class AuthService {
     private static final String RESET_PASSWORD_TOKEN_KEY_PREFIX = "reset_password:token:";
     private static final String REGISTER_EMAIL_VERIFICATION_OTP_KEY_PREFIX = "register_verify:otp:";
     private static final String REGISTER_EMAIL_VERIFICATION_EMAIL_KEY_PREFIX = "register_verify:email:";
+    private static final String ADMIN_ACCOUNT_ACTIVATION_OTP_KEY_PREFIX = "admin_activate:otp:";
+    private static final String ADMIN_ACCOUNT_ACTIVATION_EMAIL_OTP_KEY_PREFIX = "admin_activate:email:";
     private static final Duration RESET_PASSWORD_TOKEN_TTL = Duration.ofMinutes(10);
     private static final String OTP_PURPOSE_FORGOT_PASSWORD = "FORGOT_PASSWORD";
     private static final String OTP_PURPOSE_EMAIL_VERIFICATION = "EMAIL_VERIFICATION";
@@ -426,6 +429,42 @@ public class AuthService {
         stringRedisTemplate.delete(resetPasswordTokenKey(normalizedToken));
         stringRedisTemplate.delete(emailOtpKey(email));
         securityAuditService.success(AUDIT_RESET_PASSWORD, email, "password-updated");
+    }
+
+    @Transactional
+    public void activateAccount(ActivateAccountRequest request) {
+        String normalizedEmail = request.email().trim().toLowerCase();
+        String normalizedOtp = request.otp().trim();
+
+        String storedOtp = stringRedisTemplate.opsForValue().get(ADMIN_ACCOUNT_ACTIVATION_EMAIL_OTP_KEY_PREFIX + normalizedEmail);
+        if (!hasText(storedOtp) || !storedOtp.equals(normalizedOtp)) {
+            securityAuditService.failure("ACCOUNT_ACTIVATION", normalizedEmail, "otp-mismatch-or-expired");
+            throw new IllegalArgumentException("OTP is invalid or expired");
+        }
+
+        String storedEmail = stringRedisTemplate.opsForValue().get(ADMIN_ACCOUNT_ACTIVATION_OTP_KEY_PREFIX + normalizedOtp);
+        if (!hasText(storedEmail) || !normalizedEmail.equalsIgnoreCase(storedEmail)) {
+            securityAuditService.failure("ACCOUNT_ACTIVATION", normalizedEmail, "otp-email-binding-invalid");
+            throw new IllegalArgumentException("OTP is invalid or expired");
+        }
+
+        User user = userRepository.findByEmailIgnoreCase(normalizedEmail)
+                .orElseThrow(() -> new IllegalArgumentException(USER_NOT_FOUND_MESSAGE));
+
+        if (user.isStatus()) {
+            throw new ConflictException("Account is already activated");
+        }
+
+        user.setPassword(passwordEncoder.encode(request.password()));
+        user.setStatus(true);
+        user.setEmailVerified(true);
+        User savedUser = userRepository.save(user);
+
+        stringRedisTemplate.delete(ADMIN_ACCOUNT_ACTIVATION_EMAIL_OTP_KEY_PREFIX + normalizedEmail);
+        stringRedisTemplate.delete(ADMIN_ACCOUNT_ACTIVATION_OTP_KEY_PREFIX + normalizedOtp);
+
+        evictUserProfileCache(savedUser.getId(), savedUser.getEmail());
+        securityAuditService.success("ACCOUNT_ACTIVATION", normalizedEmail, "account-activated");
     }
 
     @Transactional(readOnly = true)
