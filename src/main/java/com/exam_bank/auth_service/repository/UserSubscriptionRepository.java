@@ -1,8 +1,9 @@
 package com.exam_bank.auth_service.repository;
 
-import com.exam_bank.auth_service.entity.SubscriptionStatus;
-import com.exam_bank.auth_service.entity.User;
-import com.exam_bank.auth_service.entity.UserSubscription;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -10,11 +11,21 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.util.List;
+import com.exam_bank.auth_service.entity.SubscriptionStatus;
+import com.exam_bank.auth_service.entity.User;
+import com.exam_bank.auth_service.entity.UserSubscription;
 
 public interface UserSubscriptionRepository extends JpaRepository<UserSubscription, Long> {
+
+        interface PaymentUserStatsProjection {
+                Long getUserId();
+
+                String getUserEmail();
+
+                Long getTransactionCount();
+
+                BigDecimal getTotalAmount();
+        }
 
     @EntityGraph(attributePaths = { "user", "plan" })
     List<UserSubscription> findByUserOrderByCreatedAtDesc(User user);
@@ -105,4 +116,85 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
             SubscriptionStatus status,
             Instant nowForStartDate,
             Instant nowForEndDate);
+
+    @EntityGraph(attributePaths = { "user", "plan" })
+    @Query("""
+            select us from UserSubscription us
+                                                where (:search is null or :search = ''
+                                                        or lower(us.user.fullName) like lower(concat('%', :search, '%'))
+                                                        or lower(us.user.email) like lower(concat('%', :search, '%'))
+                                                        or lower(us.plan.name) like lower(concat('%', :search, '%'))
+                                                        or lower(coalesce(us.transactionRef, '')) like lower(concat('%', :search, '%')))
+              and (:status is null or us.status = :status)
+              and (:useFromDate = false or us.createdAt >= :fromDate)
+              and (:useToDate = false or us.createdAt <= :toDate)
+            order by us.createdAt desc
+            """)
+    Page<UserSubscription> searchPaymentTransactions(
+                                                @Param("search") String search,
+            @Param("status") SubscriptionStatus status,
+            @Param("useFromDate") boolean useFromDate,
+            @Param("fromDate") Instant fromDate,
+            @Param("useToDate") boolean useToDate,
+            @Param("toDate") Instant toDate,
+            Pageable pageable);
+
+    @Query("""
+            select count(us)
+            from UserSubscription us
+                                                where (:search is null or :search = ''
+                                                        or lower(us.user.fullName) like lower(concat('%', :search, '%'))
+                                                        or lower(us.user.email) like lower(concat('%', :search, '%'))
+                                                        or lower(us.plan.name) like lower(concat('%', :search, '%'))
+                                                        or lower(coalesce(us.transactionRef, '')) like lower(concat('%', :search, '%')))
+              and (:status is null or us.status = :status)
+              and (:useFromDate = false or us.createdAt >= :fromDate)
+              and (:useToDate = false or us.createdAt <= :toDate)
+            """)
+    long countPaymentTransactions(
+                                                @Param("search") String search,
+            @Param("status") SubscriptionStatus status,
+            @Param("useFromDate") boolean useFromDate,
+            @Param("fromDate") Instant fromDate,
+            @Param("useToDate") boolean useToDate,
+            @Param("toDate") Instant toDate);
+
+    @Query("""
+            select coalesce(sum(us.purchasedPrice), 0)
+            from UserSubscription us
+                                                where (:search is null or :search = ''
+                                                        or lower(us.user.fullName) like lower(concat('%', :search, '%'))
+                                                        or lower(us.user.email) like lower(concat('%', :search, '%'))
+                                                        or lower(us.plan.name) like lower(concat('%', :search, '%'))
+                                                        or lower(coalesce(us.transactionRef, '')) like lower(concat('%', :search, '%')))
+              and (:status is null or us.status = :status)
+              and (:useFromDate = false or us.createdAt >= :fromDate)
+              and (:useToDate = false or us.createdAt <= :toDate)
+            """)
+    BigDecimal sumPaymentTransactions(
+                                                @Param("search") String search,
+            @Param("status") SubscriptionStatus status,
+            @Param("useFromDate") boolean useFromDate,
+            @Param("fromDate") Instant fromDate,
+            @Param("useToDate") boolean useToDate,
+            @Param("toDate") Instant toDate);
+
+    @Query("""
+            select us.user.id as userId,
+                   us.user.email as userEmail,
+                   count(us) as transactionCount,
+                   coalesce(sum(us.purchasedPrice), 0) as totalAmount
+            from UserSubscription us
+            where (:status is null or us.status = :status)
+              and (:useFromDate = false or us.createdAt >= :fromDate)
+              and (:useToDate = false or us.createdAt <= :toDate)
+            group by us.user.id, us.user.email
+            order by coalesce(sum(us.purchasedPrice), 0) desc
+            """)
+    List<PaymentUserStatsProjection> summarizePaymentsByUser(
+            @Param("status") SubscriptionStatus status,
+            @Param("useFromDate") boolean useFromDate,
+            @Param("fromDate") Instant fromDate,
+            @Param("useToDate") boolean useToDate,
+            @Param("toDate") Instant toDate);
 }

@@ -1,5 +1,28 @@
 package com.exam_bank.auth_service.service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.YearMonth;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+import org.springframework.amqp.AmqpException;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import static org.springframework.util.StringUtils.hasText;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
+
 import com.exam_bank.auth_service.config.properties.NotificationRabbitProperties;
 import com.exam_bank.auth_service.dto.message.SubscriptionExpiryReminderMessage;
 import com.exam_bank.auth_service.dto.message.SubscriptionReviewRequestedMessage;
@@ -21,35 +44,14 @@ import com.exam_bank.auth_service.entity.SubscriptionReviewDecision;
 import com.exam_bank.auth_service.entity.SubscriptionStatus;
 import com.exam_bank.auth_service.entity.User;
 import com.exam_bank.auth_service.entity.UserSubscription;
+import com.exam_bank.auth_service.exception.StorageUnavailableException;
 import com.exam_bank.auth_service.repository.PremiumPlanRepository;
 import com.exam_bank.auth_service.repository.SubscriptionApprovalAuditRepository;
 import com.exam_bank.auth_service.repository.UserRepository;
 import com.exam_bank.auth_service.repository.UserSubscriptionRepository;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.AmqpException;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
-import org.springframework.web.multipart.MultipartFile;
-
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.YearMonth;
-import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
-
-import static org.springframework.util.StringUtils.hasText;
 
 @Service
 @Slf4j
@@ -209,7 +211,7 @@ public class SubscriptionRequestService {
                                 .orElseThrow(() -> new IllegalArgumentException("Premium plan not found or inactive"));
                 ensureNoBlockingDuplicateRequest(user, plan.getId());
 
-                String billImageUrl = paymentBillStorageService.uploadBill(user.getId(), billFile);
+                String billImageUrl = uploadBillSafely(user, billFile);
 
                 Instant now = Instant.now();
                 UserSubscription subscription = new UserSubscription();
@@ -359,7 +361,9 @@ public class SubscriptionRequestService {
                 boolean isOwner = subscription.getUser() != null
                                 && subscription.getUser().getId() != null
                                 && subscription.getUser().getId().equals(actor.getId());
-                boolean isReviewer = actor.getRole() == Role.ADMIN || actor.getRole() == Role.CONTRIBUTOR;
+                boolean isReviewer = actor.getRole() == Role.ADMIN
+                                || actor.getRole() == Role.CONTRIBUTOR
+                                || actor.getRole() == Role.AUDIT;
 
                 if (!isOwner && !isReviewer) {
                         log.warn("Forbidden bill access for actor={} role={} subscriptionId={} ownerId={}",
@@ -368,7 +372,7 @@ public class SubscriptionRequestService {
                                         subscriptionId,
                                         subscription.getUser() == null ? null : subscription.getUser().getId());
                         throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                                        "Only owner, ADMIN, or CONTRIBUTOR can view this bill");
+                                        "Only owner, ADMIN, CONTRIBUTOR, or AUDIT can view this bill");
                 }
 
                 if (!hasText(subscription.getBillImageUrl())) {
@@ -671,10 +675,13 @@ public class SubscriptionRequestService {
 
         private User validateReviewerRole(String reviewerEmail) {
                 User reviewer = getUserByEmail(reviewerEmail);
-                if (reviewer.getRole() != Role.ADMIN && reviewer.getRole() != Role.CONTRIBUTOR) {
+                if (reviewer.getRole() != Role.ADMIN
+                                && reviewer.getRole() != Role.CONTRIBUTOR
+                                && reviewer.getRole() != Role.AUDIT) {
                         log.warn("Forbidden review access for user {} with role {}", reviewer.getEmail(),
                                         reviewer.getRole());
-                        throw new IllegalArgumentException("Only ADMIN or CONTRIBUTOR can review payment requests");
+                        throw new IllegalArgumentException(
+                                        "Only ADMIN, CONTRIBUTOR, or AUDIT can review payment requests");
                 }
                 return reviewer;
         }
@@ -888,9 +895,9 @@ public class SubscriptionRequestService {
 
         @Transactional
         private void publishReviewRequestedMessage(UserSubscription subscription) {
-                List<User> reviewers = userRepository.findByRoleInAndStatusTrue(List.of(Role.ADMIN, Role.CONTRIBUTOR));
+                List<User> reviewers = userRepository.findByRoleInAndStatusTrue(List.of(Role.AUDIT));
                 if (reviewers.isEmpty()) {
-                        log.warn("No active ADMIN/CONTRIBUTOR reviewers found for subscription {}",
+                        log.warn("No active AUDIT reviewers found for subscription {}",
                                         subscription.getId());
                         return;
                 }
@@ -934,7 +941,7 @@ public class SubscriptionRequestService {
                                         "Yêu cầu duyệt Premium mới",
                                         String.format("%s vừa gửi yêu cầu %s", subscription.getUser().getFullName(),
                                                         subscription.getPlan().getName()),
-                                        "/contributor/subscription-reviews");
+                                        "/admin/audit/vip");
 
                         log.info(
                                         "Published review requested notifications for reviewerId={} subscriptionId={} emailDispatched={} webPushDispatched={}",
@@ -942,6 +949,26 @@ public class SubscriptionRequestService {
                                         subscription.getId(),
                                         emailDispatched,
                                         webPushDispatched);
+                }
+        }
+
+        private String uploadBillSafely(User user, MultipartFile billFile) {
+                if (billFile == null || billFile.isEmpty()) {
+                        log.warn("User {} submitted purchase request without bill file", user.getEmail());
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                                        "Bill image is required for premium purchase requests");
+                }
+
+                try {
+                        return paymentBillStorageService.uploadBill(user.getId(), billFile);
+                } catch (StorageUnavailableException exception) {
+                        log.error(
+                                        "Bill storage unavailable for user={} userId={}.",
+                                        user.getEmail(),
+                                        user.getId(),
+                                        exception);
+                        throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                                        "Bill storage is temporarily unavailable. Please try again later.");
                 }
         }
 

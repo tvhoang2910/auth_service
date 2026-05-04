@@ -1,27 +1,7 @@
 package com.exam_bank.auth_service.controller;
 
-import com.exam_bank.auth_service.dto.request.RegisterRequest;
-import com.exam_bank.auth_service.dto.request.LoginRequest;
-import com.exam_bank.auth_service.dto.request.OAuth2ExchangeRequest;
-import com.exam_bank.auth_service.dto.request.RefreshTokenRequest;
-import com.exam_bank.auth_service.dto.request.ForgotPasswordRequest;
-import com.exam_bank.auth_service.dto.request.VerifyForgotPasswordOtpRequest;
-import com.exam_bank.auth_service.dto.request.VerifyEmailOtpRequest;
-import com.exam_bank.auth_service.dto.request.ResetPasswordRequest;
-import com.exam_bank.auth_service.dto.request.UpdateMyProfileRequest;
-import com.exam_bank.auth_service.dto.response.AuthTokenResponse;
-import com.exam_bank.auth_service.dto.response.RegisterResponse;
-import com.exam_bank.auth_service.dto.response.ResetPasswordTokenResponse;
-import com.exam_bank.auth_service.dto.response.UserProfileResponse;
-import com.exam_bank.auth_service.repository.UserRepository;
-import com.exam_bank.auth_service.service.AuthService;
-import com.exam_bank.auth_service.service.AvatarStorageService;
-import com.exam_bank.auth_service.service.OAuth2LoginExchangeService;
-import com.exam_bank.auth_service.security.JwtService;
-import com.exam_bank.auth_service.service.PresenceService;
-import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.util.Map;
+
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -34,11 +14,34 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.Map;
+import com.exam_bank.auth_service.dto.request.ForgotPasswordRequest;
+import com.exam_bank.auth_service.dto.request.LoginRequest;
+import com.exam_bank.auth_service.dto.request.OAuth2ExchangeRequest;
+import com.exam_bank.auth_service.dto.request.RefreshTokenRequest;
+import com.exam_bank.auth_service.dto.request.RegisterRequest;
+import com.exam_bank.auth_service.dto.request.ResetPasswordRequest;
+import com.exam_bank.auth_service.dto.request.UpdateMyProfileRequest;
+import com.exam_bank.auth_service.dto.request.VerifyEmailOtpRequest;
+import com.exam_bank.auth_service.dto.request.VerifyForgotPasswordOtpRequest;
+import com.exam_bank.auth_service.dto.response.AuthTokenResponse;
+import com.exam_bank.auth_service.dto.response.RegisterResponse;
+import com.exam_bank.auth_service.dto.response.ResetPasswordTokenResponse;
+import com.exam_bank.auth_service.dto.response.UserProfileResponse;
+import com.exam_bank.auth_service.repository.UserRepository;
+import com.exam_bank.auth_service.security.JwtService;
+import com.exam_bank.auth_service.service.AuthService;
+import com.exam_bank.auth_service.service.AvatarStorageService;
+import com.exam_bank.auth_service.service.OAuth2LoginExchangeService;
+import com.exam_bank.auth_service.service.PresenceService;
+
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @RestController
 @RequestMapping
@@ -105,6 +108,36 @@ public class AuthController {
                 log.warn("logout: could not extract subject for presence: {}", e.getMessage());
             }
         }
+        return ResponseEntity.ok(Map.of(MESSAGE_KEY, "Logged out successfully"));
+    }
+
+    // Compatibility GET handlers so browser redirects like /login?logout or GET /logout
+    @GetMapping("/login")
+    public ResponseEntity<Map<String, String>> loginGet(@RequestParam(required = false) String logout) {
+        // Return a simple OK so SPA redirects that hit the API path don't get 405
+        return ResponseEntity.ok(Map.of(MESSAGE_KEY, "Login endpoint"));
+    }
+
+    @GetMapping("/logout")
+    public ResponseEntity<Map<String, String>> logoutGet(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader) {
+        log.info("logout (GET): authorizationHeaderPresent={}",
+                authorizationHeader != null && !authorizationHeader.isBlank());
+        authService.logout(authorizationHeader);
+
+        String token = authorizationHeader != null && authorizationHeader.startsWith("Bearer ")
+                ? authorizationHeader.substring(7).trim()
+                : null;
+        if (token != null) {
+            try {
+                String email = jwtService.extractSubject(token);
+                userRepository.findByEmailIgnoreCase(email)
+                        .ifPresent(user -> presenceService.onUserLogout(user.getId(), user.getRole().name()));
+            } catch (Exception e) {
+                log.warn("logout (GET): could not extract subject for presence: {}", e.getMessage());
+            }
+        }
+
         return ResponseEntity.ok(Map.of(MESSAGE_KEY, "Logged out successfully"));
     }
 

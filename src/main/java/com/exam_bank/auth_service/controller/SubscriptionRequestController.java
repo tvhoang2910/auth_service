@@ -130,6 +130,7 @@ public class SubscriptionRequestController {
     }
 
     @PostMapping(value = "/purchase-requests", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+        @PreAuthorize("hasAnyRole('USER','CONTRIBUTOR','ADMIN','AUDIT')")
     public ResponseEntity<UserSubscriptionQueueItemResponse> createPurchaseRequest(
             Authentication authentication,
             @RequestParam Long planId,
@@ -137,13 +138,13 @@ public class SubscriptionRequestController {
             @RequestParam(required = false) String transactionRef,
             @RequestParam(required = false) String promoCode,
             @RequestParam(required = false) Boolean trial,
-            @RequestPart("bill") MultipartFile bill) {
+                        @RequestPart(value = "bill", required = false) MultipartFile bill) {
         log.info("createPurchaseRequest: actor={}, planId={}, paymentMethod={}, trial={}, billSize={}",
                 authentication.getName(),
                 planId,
                 paymentMethod,
                 trial,
-                bill.getSize());
+                                bill == null ? 0 : bill.getSize());
         UserSubscriptionQueueItemResponse response = subscriptionRequestService.createPurchaseRequest(
                 authentication.getName(),
                 planId,
