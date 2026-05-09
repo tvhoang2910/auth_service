@@ -108,6 +108,7 @@ public class WebSecurityConfig {
                                 "/error")
                         .permitAll()
                         .requestMatchers("/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/system-admin/**").hasRole("SYSTEM_ADMIN")
                         .requestMatchers("/audit/**").hasRole("AUDIT")
                         .anyRequest().authenticated())
                 .authenticationProvider(daoAuthenticationProvider())
