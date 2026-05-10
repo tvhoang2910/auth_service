@@ -1,5 +1,7 @@
 package com.exam_bank.auth_service.controller;
 
+import java.util.List;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -20,10 +22,12 @@ import com.exam_bank.auth_service.dto.response.AdminUserItemResponse;
 import com.exam_bank.auth_service.dto.response.AdminUsersPageResponse;
 import com.exam_bank.auth_service.dto.response.SystemAdminDashboardResponse;
 import com.exam_bank.auth_service.dto.response.SystemAdminLogPageResponse;
+import com.exam_bank.auth_service.dto.response.SystemAdminServiceStatusItemResponse;
 import com.exam_bank.auth_service.entity.Role;
 import com.exam_bank.auth_service.service.AdminUserService;
 import com.exam_bank.auth_service.service.SystemAdminDashboardService;
 import com.exam_bank.auth_service.service.SystemAdminLogService;
+import com.exam_bank.auth_service.service.SystemAdminSystemStatusService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +41,7 @@ public class SystemAdminController {
     private final AdminUserService adminUserService;
     private final SystemAdminDashboardService systemAdminDashboardService;
     private final SystemAdminLogService systemAdminLogService;
+    private final SystemAdminSystemStatusService systemAdminSystemStatusService;
 
     @GetMapping("/users")
     public ResponseEntity<AdminUsersPageResponse> getUsers(
@@ -114,6 +119,11 @@ public class SystemAdminController {
     @GetMapping("/dashboard")
     public ResponseEntity<SystemAdminDashboardResponse> getDashboard() {
         return ResponseEntity.ok(systemAdminDashboardService.getDashboard());
+    }
+
+    @GetMapping("/system-status")
+    public ResponseEntity<List<SystemAdminServiceStatusItemResponse>> getSystemStatus() {
+        return ResponseEntity.ok(systemAdminSystemStatusService.getSystemStatus());
     }
 
     private Boolean parseStatus(String status) {

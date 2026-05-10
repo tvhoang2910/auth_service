@@ -54,6 +54,7 @@ public class AdminUserService {
     private final AuthUserProfileEventPublisher authUserProfileEventPublisher;
     private final AvatarStorageService avatarStorageService;
     private final SecurityAuditService securityAuditService;
+    private final UserProfileCacheService userProfileCacheService;
 
     @Transactional(readOnly = true)
     public Page<AdminUserItemResponse> getUsers(String search, Role role, Pageable pageable) {
@@ -168,6 +169,7 @@ public class AdminUserService {
 
         user.setRole(request.role());
         User savedUser = userRepository.save(user);
+        userProfileCacheService.evict(savedUser.getId(), savedUser.getEmail());
         authUserProfileEventPublisher.publish(savedUser, null);
         logSystemAdminAction(savedUser, normalizeActor(actorEmail), "CHANGE_ROLE",
                 "targetEmail=" + savedUser.getEmail() + "; role=" + savedUser.getRole().name());
