@@ -25,6 +25,8 @@ import com.exam_bank.auth_service.dto.response.SystemAdminServiceStatusItemRespo
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import jakarta.annotation.PostConstruct;
+
 @Service
 @Transactional(readOnly = true)
 public class SystemAdminSystemStatusService {
@@ -39,11 +41,11 @@ public class SystemAdminSystemStatusService {
     private static final DateTimeFormatter DATE_TIME_FORMATTER =
             DateTimeFormatter.ofPattern("d/M/yyyy HH:mm:ss").withZone(ZoneId.of("Asia/Ho_Chi_Minh"));
 
-    private final HttpClient httpClient = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(3))
-        .build();
+    // HttpClient will be initialized in @PostConstruct so we can use injected timeoutMillis
+    private HttpClient httpClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<String, Instant> lastSuccessfulHeartbeatByService = new ConcurrentHashMap<>();
+    private final Map<String, Integer> consecutiveFailuresByService = new ConcurrentHashMap<>();
 
     @Value("${auth.system-status.services:"
         + "auth_service=http://localhost:8080/api/v1/auth/,"
@@ -55,6 +57,19 @@ public class SystemAdminSystemStatusService {
 
     @Value("${auth.system-status.timeout-millis:1500}")
     private int timeoutMillis;
+
+    @Value("${auth.system-status.failure-threshold:2}")
+    private int failureThreshold;
+
+    @PostConstruct
+    private void initHttpClient() {
+        // Ensure a sensible minimum timeout
+        int effectiveMillis = Math.max(500, timeoutMillis);
+        this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofMillis(effectiveMillis))
+                .build();
+        logger.info("SystemStatus monitor initialized (timeout={}ms, failureThreshold={})", effectiveMillis, failureThreshold);
+    }
 
     public List<SystemAdminServiceStatusItemResponse> getSystemStatus() {
         List<MonitorTarget> targets = parseTargets(serviceTargetsConfig);
@@ -69,16 +84,29 @@ public class SystemAdminSystemStatusService {
         return result;
     }
 
+    /**
+     * Probes the configured candidate health endpoints for the target.
+     * <p>
+     * Logic summary:
+     * - Try multiple candidate health endpoints derived from the base URL.
+     * - On first successful probe (HTTP 200 with JSON {status: "UP"}) mark ONLINE and reset failure count.
+     * - On failure increment consecutive failure count; only mark OFFLINE when failures >= failureThreshold.
+     * - While failures < threshold, continue returning previous successful heartbeat (avoid flipping to OFFLINE on transient errors).
+     */
     private SystemAdminServiceStatusItemResponse probeTarget(long id, MonitorTarget target, Instant now) {
+        String name = target.name();
+
         for (URI candidateUrl : buildHealthCandidates(target.url())) {
             ProbeAttempt attempt = probe(candidateUrl);
-            logAttempt(target.name(), candidateUrl, attempt);
+            logAttempt(name, candidateUrl, attempt);
 
             if (attempt.success) {
-                lastSuccessfulHeartbeatByService.put(target.name(), now);
+                // Successful heartbeat: reset failures and record last success
+                consecutiveFailuresByService.remove(name);
+                lastSuccessfulHeartbeatByService.put(name, now);
                 return new SystemAdminServiceStatusItemResponse(
                         id,
-                        target.name(),
+                        name,
                         "ONLINE",
                         target.port(),
                         heartbeatAgo(now, now),
@@ -87,12 +115,41 @@ public class SystemAdminSystemStatusService {
             }
         }
 
-        return downResponse(id, target, now, "N/A");
+        // No candidate succeeded
+        int failures = consecutiveFailuresByService.getOrDefault(name, 0) + 1;
+        consecutiveFailuresByService.put(name, failures);
+
+        Instant lastSuccess = lastSuccessfulHeartbeatByService.get(name);
+
+        // If we have recent successful heartbeat and haven't exceeded failure threshold yet,
+        // keep service as ONLINE (stale) to avoid flapping on transient errors. Otherwise mark OFFLINE.
+        if (lastSuccess != null && failures < Math.max(1, failureThreshold)) {
+            return new SystemAdminServiceStatusItemResponse(
+                    id,
+                    name,
+                    "ONLINE",
+                    target.port(),
+                    heartbeatAgo(lastSuccess, now),
+                    "N/A",
+                    DATE_TIME_FORMATTER.format(now));
+        }
+
+        // Failure threshold reached or no previous success -> treat as OFFLINE
+        return new SystemAdminServiceStatusItemResponse(
+                id,
+                name,
+                "OFFLINE",
+                target.port(),
+                heartbeatAgo(lastSuccess, now),
+                "N/A",
+                DATE_TIME_FORMATTER.format(now));
     }
 
     private ProbeAttempt probe(URI url) {
+        // Use configured timeout for the request; ensure a sensible minimum
+        Duration reqTimeout = Duration.ofMillis(Math.max(500, timeoutMillis));
         HttpRequest request = HttpRequest.newBuilder(url)
-                .timeout(Duration.ofSeconds(3))
+                .timeout(reqTimeout)
                 .GET()
                 .build();
 
@@ -120,14 +177,33 @@ public class SystemAdminSystemStatusService {
         logger.info("Checking {} -> {}", serviceName, url);
 
         if (attempt.exception != null) {
-            logger.warn("{} -> EXCEPTION after {}ms: {}", serviceName, attempt.responseTimeMs, summarizeException(attempt.exception));
+            String summary = summarizeException(attempt.exception);
+            // categorize common exceptions
+            if (summary.contains("timeout")) {
+                logger.warn("{} -> TIMEOUT after {}ms: {}", serviceName, attempt.responseTimeMs, summary);
+            } else if (summary.contains("connection refused") || summary.contains("Connection refused")) {
+                logger.warn("{} -> CONNECTION REFUSED after {}ms: {}", serviceName, attempt.responseTimeMs, summary);
+            } else {
+                logger.warn("{} -> EXCEPTION after {}ms: {}", serviceName, attempt.responseTimeMs, summary);
+            }
             return;
         }
 
         logger.info("{} -> HTTP {}", serviceName, attempt.httpStatus);
-        if (attempt.responseBody != null) {
-            logger.info("{} -> Response: {}", serviceName, attempt.responseBody);
+        if (attempt.responseBody != null && !attempt.responseBody.isBlank()) {
+            logger.debug("{} -> Response: {}", serviceName, attempt.responseBody);
         }
+
+        if (attempt.httpStatus != 200) {
+            if (attempt.httpStatus == 401 || attempt.httpStatus == 403) {
+                logger.warn("{} -> AUTH FAILURE HTTP {}", serviceName, attempt.httpStatus);
+            } else if (attempt.httpStatus == 404) {
+                logger.warn("{} -> NOT FOUND HTTP {}", serviceName, attempt.httpStatus);
+            } else {
+                logger.warn("{} -> UNEXPECTED HTTP {}", serviceName, attempt.httpStatus);
+            }
+        }
+
         logger.info("{} -> Response time: {}ms", serviceName, attempt.responseTimeMs);
     }
 
