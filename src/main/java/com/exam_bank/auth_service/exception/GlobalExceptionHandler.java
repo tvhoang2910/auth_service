@@ -1,22 +1,25 @@
 package com.exam_bank.auth_service.exception;
 
-import jakarta.servlet.http.HttpServletRequest;
-import lombok.extern.slf4j.Slf4j;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.jwt.JwtException;
-import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 
 @RestControllerAdvice
 @Slf4j
@@ -86,6 +89,24 @@ public class GlobalExceptionHandler {
             HttpServletRequest request) {
         log.warn("Method not supported: method={}, uri={}", exception.getMethod(), request.getRequestURI());
         return buildResponse(HttpStatus.METHOD_NOT_ALLOWED, exception.getMessage());
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, Object>> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        log.error("Type mismatch: param={}, value={}, type={}", e.getName(), e.getValue(), e.getRequiredType(), e);
+        String message = String.format("Invalid parameter '%s': expected %s but got '%s'",
+                e.getName(), e.getRequiredType().getSimpleName(), e.getValue());
+        return buildResponse(HttpStatus.BAD_REQUEST, message);
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Map<String, Object>> handleResponseStatus(ResponseStatusException exception) {
+        HttpStatus status = HttpStatus.valueOf(exception.getStatusCode().value());
+        String message = exception.getReason();
+        if (message == null || message.isBlank()) {
+            message = status.getReasonPhrase();
+        }
+        return buildResponse(status, message);
     }
 
     @ExceptionHandler(Exception.class)

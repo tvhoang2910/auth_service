@@ -1,18 +1,19 @@
 package com.exam_bank.auth_service.config;
 
-import com.exam_bank.auth_service.config.properties.AuthJwtProperties;
-import com.exam_bank.auth_service.config.properties.CorsProperties;
-import com.exam_bank.auth_service.security.JwtBlacklistFilter;
-import com.exam_bank.auth_service.security.OAuth2AuthenticationSuccessHandler;
-import com.exam_bank.auth_service.security.OAuth2RedirectUriCaptureFilter;
-import com.exam_bank.auth_service.service.AppUserDetailsService;
-import com.nimbusds.jose.jwk.source.ImmutableSecret;
-import com.nimbusds.jose.util.Base64;
-import org.springframework.context.annotation.Lazy;
+import java.util.Collection;
+import java.util.List;
+
+import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.core.convert.converter.Converter;
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -21,34 +22,34 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
-import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
-import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import static org.springframework.util.StringUtils.hasText;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-import org.springframework.core.convert.converter.Converter;
 
-import javax.crypto.SecretKey;
-import javax.crypto.spec.SecretKeySpec;
-import java.util.Collection;
-import java.util.List;
-
-import static org.springframework.util.StringUtils.hasText;
+import com.exam_bank.auth_service.config.properties.AuthJwtProperties;
+import com.exam_bank.auth_service.config.properties.CorsProperties;
+import com.exam_bank.auth_service.security.JwtBlacklistFilter;
+import com.exam_bank.auth_service.security.OAuth2AuthenticationSuccessHandler;
+import com.exam_bank.auth_service.security.OAuth2RedirectUriCaptureFilter;
+import com.exam_bank.auth_service.service.AppUserDetailsService;
+import com.nimbusds.jose.jwk.source.ImmutableSecret;
+import com.nimbusds.jose.util.Base64;
 
 @Configuration
 @EnableMethodSecurity
@@ -107,6 +108,7 @@ public class WebSecurityConfig {
                                 "/error")
                         .permitAll()
                         .requestMatchers("/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/audit/**").hasRole("AUDIT")
                         .anyRequest().authenticated())
                 .authenticationProvider(daoAuthenticationProvider())
                 .httpBasic(AbstractHttpConfigurer::disable)
