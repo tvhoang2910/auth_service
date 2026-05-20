@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -27,11 +28,13 @@ import org.springframework.web.server.ResponseStatusException;
 
 import com.exam_bank.auth_service.audit.service.AuditPaymentService;
 import com.exam_bank.auth_service.audit.service.AuditVipApprovalService;
+import com.exam_bank.auth_service.audit.service.SubscriptionApprovalAuditLogService;
 import com.exam_bank.auth_service.dto.request.AuditVipDecisionRequest;
 import com.exam_bank.auth_service.dto.request.PaymentFeeCalculationRequest;
 import com.exam_bank.auth_service.dto.response.PaymentFeeCalculationResponse;
 import com.exam_bank.auth_service.dto.response.PaymentStatsResponse;
 import com.exam_bank.auth_service.dto.response.PaymentTransactionResponse;
+import com.exam_bank.auth_service.dto.response.SubscriptionApprovalAuditLogPageResponse;
 import com.exam_bank.auth_service.dto.response.SubscriptionApprovalAuditResponse;
 import com.exam_bank.auth_service.dto.response.UserSubscriptionQueueItemResponse;
 import com.exam_bank.auth_service.entity.SubscriptionStatus;
@@ -49,6 +52,7 @@ public class AuditController {
 
     private final AuditVipApprovalService auditVipApprovalService;
     private final AuditPaymentService auditPaymentService;
+    private final SubscriptionApprovalAuditLogService auditLogService;
 
     @GetMapping("/vip/requests")
     public ResponseEntity<Page<UserSubscriptionQueueItemResponse>> getVipRequests(
@@ -119,7 +123,7 @@ public class AuditController {
                 status,
                 fromDate,
                 toDate,
-                PageRequest.of(page, Math.min(size, 100)));
+                PageRequest.of(page, Math.min(size, 100), Sort.by(Sort.Order.asc("id"))));
         return ResponseEntity.ok(transactions);
     }
 
@@ -134,6 +138,19 @@ public class AuditController {
         Instant fromDate = parseDateTime(from, false);
         Instant toDate = parseDateTime(to, true);
         return ResponseEntity.ok(auditPaymentService.summarizePayments(search, status, fromDate, toDate));
+    }
+
+    @GetMapping("/logs")
+    public ResponseEntity<SubscriptionApprovalAuditLogPageResponse> getAuditLogs(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String action,
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to) {
+        Instant fromDate = parseDateTime(from, false);
+        Instant toDate = parseDateTime(to, true);
+        return ResponseEntity.ok(auditLogService.getAuditLogs(page, size, action, userId, fromDate, toDate));
     }
 
     private Instant parseDateTime(String raw, boolean endOfDayIfDateOnly) {

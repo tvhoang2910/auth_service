@@ -4,5 +4,6 @@ public enum Role {
     USER,
     CONTRIBUTOR,
     ADMIN,
-    AUDIT
+    AUDIT,
+    SYSTEM_ADMIN
 }

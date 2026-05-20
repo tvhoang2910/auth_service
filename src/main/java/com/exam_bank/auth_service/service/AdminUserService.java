@@ -1,24 +1,10 @@
 package com.exam_bank.auth_service.service;
 
-import com.exam_bank.auth_service.dto.request.AdminCreateUserRequest;
-import com.exam_bank.auth_service.dto.request.AdminImportUserItemRequest;
-import com.exam_bank.auth_service.dto.request.AdminImportUsersRequest;
-import com.exam_bank.auth_service.dto.request.AdminUpdateUserRoleRequest;
-import com.exam_bank.auth_service.dto.request.AdminUpdateUserStatusRequest;
-import com.exam_bank.auth_service.dto.message.AccountLockedMessage;
-import com.exam_bank.auth_service.dto.message.AccountUnlockedMessage;
-import com.exam_bank.auth_service.dto.response.AdminImportUserErrorResponse;
-import com.exam_bank.auth_service.dto.response.AdminImportUsersResponse;
-import com.exam_bank.auth_service.dto.response.AdminUserItemResponse;
-import com.exam_bank.auth_service.config.properties.NotificationRabbitProperties;
-import com.exam_bank.auth_service.entity.Role;
-import com.exam_bank.auth_service.entity.SubscriptionStatus;
-import com.exam_bank.auth_service.entity.User;
-import com.exam_bank.auth_service.exception.ConflictException;
-import com.exam_bank.auth_service.repository.UserSubscriptionRepository;
-import com.exam_bank.auth_service.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
 import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.domain.Page;
@@ -27,15 +13,29 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import static org.springframework.util.StringUtils.hasText;
+
+import com.exam_bank.auth_service.config.properties.NotificationRabbitProperties;
+import com.exam_bank.auth_service.dto.message.AccountLockedMessage;
+import com.exam_bank.auth_service.dto.message.AccountUnlockedMessage;
+import com.exam_bank.auth_service.dto.request.AdminCreateUserRequest;
+import com.exam_bank.auth_service.dto.request.AdminImportUserItemRequest;
+import com.exam_bank.auth_service.dto.request.AdminImportUsersRequest;
+import com.exam_bank.auth_service.dto.request.AdminUpdateUserRoleRequest;
+import com.exam_bank.auth_service.dto.request.AdminUpdateUserStatusRequest;
+import com.exam_bank.auth_service.dto.response.AdminImportUserErrorResponse;
+import com.exam_bank.auth_service.dto.response.AdminImportUsersResponse;
+import com.exam_bank.auth_service.dto.response.AdminUserItemResponse;
+import com.exam_bank.auth_service.entity.Role;
+import com.exam_bank.auth_service.entity.SubscriptionStatus;
+import com.exam_bank.auth_service.entity.User;
+import com.exam_bank.auth_service.exception.ConflictException;
+import com.exam_bank.auth_service.repository.UserRepository;
+import com.exam_bank.auth_service.repository.UserSubscriptionRepository;
 
 import jakarta.persistence.criteria.Predicate;
-
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
-
-import static org.springframework.util.StringUtils.hasText;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @Slf4j
@@ -53,28 +53,44 @@ public class AdminUserService {
     private final UserSubscriptionRepository userSubscriptionRepository;
     private final AuthUserProfileEventPublisher authUserProfileEventPublisher;
     private final AvatarStorageService avatarStorageService;
+    private final SecurityAuditService securityAuditService;
+    private final UserProfileCacheService userProfileCacheService;
 
     @Transactional(readOnly = true)
     public Page<AdminUserItemResponse> getUsers(String search, Role role, Pageable pageable) {
+        return getUsers(search, role, null, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<AdminUserItemResponse> getUsers(String search, Role role, Boolean status, Pageable pageable) {
         String normalizedSearch = normalizeSearch(search);
         Page<User> page;
-        if (!hasText(normalizedSearch) && role == null) {
+        if (!hasText(normalizedSearch) && role == null && status == null) {
             page = userRepository.findAll(pageable);
-        } else if (!hasText(normalizedSearch) && role != null) {
-            page = userRepository.findByRole(role, pageable);
         } else {
-            page = userRepository.findAll(buildSearchSpecification(normalizedSearch, role), pageable);
+            page = userRepository.findAll(buildSearchSpecification(normalizedSearch, role, status), pageable);
         }
 
         return page.map(this::mapToResponse);
     }
 
-    private Specification<User> buildSearchSpecification(String normalizedSearch, Role role) {
+    @Transactional(readOnly = true)
+    public AdminUserItemResponse getUserById(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        return mapToResponse(user);
+    }
+
+    private Specification<User> buildSearchSpecification(String normalizedSearch, Role role, Boolean status) {
         return (root, query, criteriaBuilder) -> {
             List<Predicate> predicates = new ArrayList<>();
 
             if (role != null) {
                 predicates.add(criteriaBuilder.equal(root.get("role"), role));
+            }
+
+            if (status != null) {
+                predicates.add(criteriaBuilder.equal(root.get("status"), status));
             }
 
             if (hasText(normalizedSearch)) {
@@ -136,17 +152,27 @@ public class AdminUserService {
         } else if (!wasActiveBefore && active) {
             publishAccountUnlockedMessage(savedUser, normalizedReason, normalizedActor, changedAt);
         }
+        logSystemAdminAction(savedUser, normalizedActor, active ? "UNLOCK_USER" : "LOCK_USER", normalizedReason);
         return mapToResponse(savedUser);
     }
 
     @Transactional
     public AdminUserItemResponse updateUserRole(Long userId, AdminUpdateUserRoleRequest request) {
+        return updateUserRole(userId, request, null);
+    }
+
+    @Transactional
+    public AdminUserItemResponse updateUserRole(Long userId, AdminUpdateUserRoleRequest request,
+            String actorEmail) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         user.setRole(request.role());
         User savedUser = userRepository.save(user);
+        userProfileCacheService.evict(savedUser.getId(), savedUser.getEmail());
         authUserProfileEventPublisher.publish(savedUser, null);
+        logSystemAdminAction(savedUser, normalizeActor(actorEmail), "CHANGE_ROLE",
+                "targetEmail=" + savedUser.getEmail() + "; role=" + savedUser.getRole().name());
         return mapToResponse(savedUser);
     }
 
@@ -245,6 +271,12 @@ public class AdminUserService {
             return "system";
         }
         return actorEmail.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private void logSystemAdminAction(User user, String actorEmail, String action, String reason) {
+        String details = "targetEmail=" + user.getEmail() + "; reason=" + reason + "; status="
+                + (user.isStatus() ? "ACTIVE" : "LOCKED") + "; role=" + user.getRole().name();
+        securityAuditService.success(action, actorEmail, details);
     }
 
     private String normalizeEmail(String email) {
