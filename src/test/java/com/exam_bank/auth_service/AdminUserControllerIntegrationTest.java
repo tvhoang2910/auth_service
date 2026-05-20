@@ -58,7 +58,7 @@ class AdminUserControllerIntegrationTest {
     @MockitoBean
     private PresenceService presenceService;
 
-    private static final String BASE = "/api/v1/auth";
+    private static final String BASE = "";
     private static final String ADMIN_BASE = BASE + "/admin/users";
 
     private String adminEmail;
