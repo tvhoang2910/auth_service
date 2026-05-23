@@ -1,10 +1,8 @@
 package com.exam_bank.auth_service.controller;
 
 import com.exam_bank.auth_service.dto.request.AdminCreateUserRequest;
-import com.exam_bank.auth_service.dto.request.AdminImportUsersRequest;
 import com.exam_bank.auth_service.dto.request.AdminUpdateUserRoleRequest;
 import com.exam_bank.auth_service.dto.request.AdminUpdateUserStatusRequest;
-import com.exam_bank.auth_service.dto.response.AdminImportUsersResponse;
 import com.exam_bank.auth_service.dto.response.AdminUserItemResponse;
 import com.exam_bank.auth_service.dto.response.AdminUsersPageResponse;
 import com.exam_bank.auth_service.entity.Role;
@@ -40,10 +38,10 @@ public class AdminUserController {
             @RequestParam(required = false) Role role,
             Pageable pageable) {
         log.info("adminGetUsers: search={}, role={}, page={}, size={}",
-            search,
-            role,
-            pageable.getPageNumber(),
-            pageable.getPageSize());
+                search,
+                role,
+                pageable.getPageNumber(),
+                pageable.getPageSize());
         Page<AdminUserItemResponse> response = adminUserService.getUsers(search, role, pageable);
         AdminUsersPageResponse body = new AdminUsersPageResponse(
                 response.getContent(),
@@ -69,10 +67,10 @@ public class AdminUserController {
             Authentication authentication,
             @Valid @RequestBody AdminUpdateUserStatusRequest request) {
         log.info("adminUpdateUserStatus: actor={}, userId={}, status={}, active={}",
-            authentication.getName(),
-            id,
-            request.status(),
-            request.active());
+                authentication.getName(),
+                id,
+                request.status(),
+                request.active());
         AdminUserItemResponse response = adminUserService.updateUserStatus(id, request, authentication.getName());
         return ResponseEntity.ok(response);
     }
@@ -86,11 +84,4 @@ public class AdminUserController {
         return ResponseEntity.ok(response);
     }
 
-    @PostMapping("/import-json")
-    public ResponseEntity<AdminImportUsersResponse> importUsers(@Valid @RequestBody AdminImportUsersRequest request) {
-        int userCount = request.users() == null ? 0 : request.users().size();
-        log.info("adminImportUsers: userCount={}, skipExisting={}", userCount, request.skipExisting());
-        AdminImportUsersResponse response = adminUserService.importUsers(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
-    }
 }

@@ -1,6 +1,7 @@
 package com.exam_bank.auth_service.controller;
 
 import com.exam_bank.auth_service.dto.internal.InternalUserDisplayNameBatchRequest;
+import com.exam_bank.auth_service.dto.internal.InternalUserProfileResponse;
 import com.exam_bank.auth_service.service.InternalUserLookupService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
+import java.util.List;
 
 @RestController
 @RequestMapping("/internal/users")
@@ -97,6 +99,29 @@ public class InternalUserController {
         return ResponseEntity.ok()
                 .headers(deprecationHeaders())
                 .body(internalUserLookupService.findDisplayNamesByUserIds(request.getUserIds()));
+    }
+
+    @Deprecated(since = "2026-04", forRemoval = false)
+    @PostMapping("/profiles")
+    public ResponseEntity<?> findProfilesByUserIds(
+            @RequestHeader("X-Internal-Token") String providedToken,
+            @Valid @RequestBody InternalUserDisplayNameBatchRequest request) {
+        if (!internalToken.equals(providedToken)) {
+            log.warn("findProfilesByUserIds: invalid internal token");
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .headers(deprecationHeaders())
+                    .body(Map.of("error", "Forbidden"));
+        }
+
+        log.warn("Deprecated endpoint called: POST /internal/users/profiles userCount={}",
+                request.getUserIds() == null ? 0 : request.getUserIds().size());
+
+        List<InternalUserProfileResponse> responses =
+                internalUserLookupService.findProfilesByUserIds(request.getUserIds());
+
+        return ResponseEntity.ok()
+                .headers(deprecationHeaders())
+                .body(responses);
     }
 
     private HttpHeaders deprecationHeaders() {

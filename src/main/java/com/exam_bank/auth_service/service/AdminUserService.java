@@ -1,6 +1,8 @@
 package com.exam_bank.auth_service.service;
 
 import java.time.Instant;
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -16,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import static org.springframework.util.StringUtils.hasText;
 
 import com.exam_bank.auth_service.config.properties.NotificationRabbitProperties;
+import com.exam_bank.auth_service.dto.message.EmailOtpMessage;
 import com.exam_bank.auth_service.dto.message.AccountLockedMessage;
 import com.exam_bank.auth_service.dto.message.AccountUnlockedMessage;
 import com.exam_bank.auth_service.dto.request.AdminCreateUserRequest;
@@ -45,6 +48,7 @@ public class AdminUserService {
     private static final int USER_STATUS_BANNED = 0;
     private static final int USER_STATUS_ACTIVE = 1;
     private static final int MAX_IMPORT_BATCH_SIZE = 1000;
+    private static final String TEMP_PASSWORD_PURPOSE = "TEMP_PASSWORD";
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -55,6 +59,8 @@ public class AdminUserService {
     private final AvatarStorageService avatarStorageService;
     private final SecurityAuditService securityAuditService;
     private final UserProfileCacheService userProfileCacheService;
+
+    private final SecureRandom secureRandom = new SecureRandom();
 
     @Transactional(readOnly = true)
     public Page<AdminUserItemResponse> getUsers(String search, Role role, Pageable pageable) {
@@ -111,10 +117,11 @@ public class AdminUserService {
             throw new ConflictException("Email already exists");
         }
 
+        String temporaryPassword = generateTemporaryPassword();
         User user = new User();
         user.setEmail(normalizedEmail);
         user.setFullName(request.fullName().trim());
-        user.setPassword(passwordEncoder.encode(request.password()));
+        user.setPassword(passwordEncoder.encode(temporaryPassword));
         user.setRole(request.role() == null ? Role.CONTRIBUTOR : request.role());
         user.setStatus(true);
         user.setEmailVerified(true);
@@ -124,6 +131,7 @@ public class AdminUserService {
         user.setSubject(null);
 
         User savedUser = userRepository.save(user);
+        publishTemporaryPasswordEmail(savedUser.getEmail(), temporaryPassword);
         authUserProfileEventPublisher.publish(savedUser, isPremiumActive(savedUser.getId()));
         return mapToResponse(savedUser);
     }
@@ -209,10 +217,11 @@ public class AdminUserService {
             }
 
             try {
+                String temporaryPassword = generateTemporaryPassword();
                 User user = new User();
                 user.setEmail(normalizedEmail);
                 user.setFullName(item.fullName().trim());
-                user.setPassword(passwordEncoder.encode(item.password()));
+                user.setPassword(passwordEncoder.encode(temporaryPassword));
                 user.setRole(item.role() == null ? Role.CONTRIBUTOR : item.role());
                 user.setStatus(true);
                 user.setEmailVerified(true);
@@ -220,8 +229,14 @@ public class AdminUserService {
                 user.setPhoneNumber(normalizeOptionalText(item.phoneNumber()));
                 user.setSchool(normalizeOptionalText(item.school()));
                 user.setSubject(normalizeOptionalText(item.subject()));
-                userRepository.save(user);
-                authUserProfileEventPublisher.publish(user, Boolean.FALSE);
+                User savedUser = userRepository.save(user);
+                try {
+                    publishTemporaryPasswordEmail(savedUser.getEmail(), temporaryPassword);
+                    authUserProfileEventPublisher.publish(savedUser, Boolean.FALSE);
+                } catch (RuntimeException publishException) {
+                    userRepository.delete(savedUser);
+                    throw publishException;
+                }
                 created++;
             } catch (RuntimeException exception) {
                 failed++;
@@ -291,6 +306,21 @@ public class AdminUserService {
             return null;
         }
         return value.trim();
+    }
+
+    private String generateTemporaryPassword() {
+        byte[] randomBytes = new byte[16];
+        secureRandom.nextBytes(randomBytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
+    }
+
+    private void publishTemporaryPasswordEmail(String email, String temporaryPassword) {
+        EmailOtpMessage message = new EmailOtpMessage(email, temporaryPassword, TEMP_PASSWORD_PURPOSE);
+        rabbitTemplate.convertAndSend(
+                notificationRabbitProperties.getExchange(),
+                notificationRabbitProperties.getEmailOtpRoutingKey(),
+                message);
+        log.info("Queued temporary password email for {}", email);
     }
 
     private String normalizeSearch(String search) {

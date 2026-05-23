@@ -17,6 +17,7 @@ import static org.springframework.util.StringUtils.hasText;
 public class AuthUserProfileEventPublisher {
 
     private final RabbitTemplate rabbitTemplate;
+    private final AvatarStorageService avatarStorageService;
 
     @Value("${auth.events.exchange:auth.events}")
     private String authEventsExchange;
@@ -32,6 +33,7 @@ public class AuthUserProfileEventPublisher {
         UserProfileSyncMessage message = new UserProfileSyncMessage(
                 user.getId(),
                 hasText(user.getFullName()) ? user.getFullName().trim() : null,
+                avatarStorageService.toPublicAvatarUrl(user.getId(), user.getAvatarUrl()),
                 premium,
                 user.getRole() != null ? user.getRole().name() : null,
                 user.isStatus());

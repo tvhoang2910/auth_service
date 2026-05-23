@@ -92,6 +92,33 @@ class AdminAlertInAppConsumerTest {
         }
 
         @Test
+        @DisplayName("handleAdminAlert persists upload extraction notification for reviewer")
+        void handleAdminAlertPersistsUploadExtractionNotificationForReviewer() {
+                User user = buildUser(101L, Role.ADMIN, true);
+                when(userRepository.findAllById(anyCollection())).thenReturn(List.of(user));
+
+                AdminAlertMessage message = new AdminAlertMessage(
+                                "EXAM_UPLOAD_EXTRACTED",
+                                "Trích xuất đề thi hoàn tất",
+                                "Đề \"Toán 12\" đã trích xuất xong. Bạn có thể mở để kiểm tra.",
+                                List.of(),
+                                null,
+                                Map.of(
+                                                "targetUserId", 101L,
+                                                "uploadId", 55L,
+                                                "title", "Toán 12"));
+
+                consumer.handleAdminAlert(message);
+
+                verify(notificationCenterService).createNotification(
+                                same(user),
+                                eq("EXAM_UPLOAD_EXTRACTED"),
+                                eq("Trích xuất đề thi hoàn tất"),
+                                eq("Đề \"Toán 12\" đã trích xuất xong. Bạn có thể mở để kiểm tra."),
+                                eq("/admin/upload-queue"));
+        }
+
+        @Test
         @DisplayName("handleAdminAlert ignores unsupported types")
         void handleAdminAlertIgnoresUnsupportedTypes() {
                 AdminAlertMessage message = new AdminAlertMessage(

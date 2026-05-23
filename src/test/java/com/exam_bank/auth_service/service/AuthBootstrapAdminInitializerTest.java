@@ -13,10 +13,15 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -48,33 +53,55 @@ class AuthBootstrapAdminInitializerTest {
     }
 
     @Test
-    @DisplayName("run creates ADMIN user when bootstrap is enabled and user does not exist")
-    void runCreatesAdminUserWhenEnabledAndUserDoesNotExist() throws Exception {
+    @DisplayName("run seeds five default role accounts when bootstrap is enabled")
+    void runSeedsFiveDefaultRoleAccountsWhenEnabled() throws Exception {
         when(properties.isEnabled()).thenReturn(true);
         when(properties.getEmail()).thenReturn("Admin@Exam-Bank.local");
         when(properties.getPassword()).thenReturn("Admin@123456");
         when(properties.getFullName()).thenReturn("Exam Bank Admin");
+        when(properties.isUpdatePassword()).thenReturn(false);
 
-        when(userRepository.findByEmailIgnoreCase("admin@exam-bank.local")).thenReturn(Optional.empty());
-        when(passwordEncoder.encode("Admin@123456")).thenReturn("encoded-password");
+        Map<String, Optional<User>> usersByEmail = new HashMap<>();
+        usersByEmail.put("admin@exam-bank.local", Optional.empty());
+        usersByEmail.put("contributor@exam-bank.local", Optional.empty());
+        usersByEmail.put("audit@exam-bank.local", Optional.empty());
+        usersByEmail.put("system-admin@exam-bank.local", Optional.empty());
+        usersByEmail.put("user@exam-bank.local", Optional.empty());
+
+        when(userRepository.findByEmailIgnoreCase(anyString()))
+                .thenAnswer(invocation -> usersByEmail.getOrDefault(invocation.getArgument(0), Optional.empty()));
+        when(passwordEncoder.encode(anyString())).thenAnswer(invocation -> "encoded:" + invocation.getArgument(0));
 
         initializer.run(null);
 
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
-        verify(userRepository).save(captor.capture());
-        User saved = captor.getValue();
+        verify(userRepository, times(5)).save(captor.capture());
 
-        assertThat(saved.getEmail()).isEqualTo("admin@exam-bank.local");
-        assertThat(saved.getFullName()).isEqualTo("Exam Bank Admin");
-        assertThat(saved.getPassword()).isEqualTo("encoded-password");
-        assertThat(saved.getRole()).isEqualTo(Role.ADMIN);
-        assertThat(saved.isStatus()).isTrue();
-        assertThat(saved.isEmailVerified()).isTrue();
+        List<User> savedUsers = captor.getAllValues();
+        assertThat(savedUsers).hasSize(5);
+        assertThat(savedUsers).extracting(User::getRole)
+                .containsExactlyInAnyOrder(Role.ADMIN, Role.CONTRIBUTOR, Role.AUDIT, Role.SYSTEM_ADMIN, Role.USER);
+        assertThat(savedUsers).extracting(User::getEmail)
+                .containsExactlyInAnyOrder(
+                        "admin@exam-bank.local",
+                        "contributor@exam-bank.local",
+                        "audit@exam-bank.local",
+                        "system-admin@exam-bank.local",
+                        "user@exam-bank.local");
+
+        assertThat(savedUsers).anySatisfy(user -> {
+            assertThat(user.getEmail()).isEqualTo("admin@exam-bank.local");
+            assertThat(user.getFullName()).isEqualTo("Exam Bank Admin");
+            assertThat(user.getPassword()).isEqualTo("encoded:Admin@123456");
+            assertThat(user.getRole()).isEqualTo(Role.ADMIN);
+            assertThat(user.isStatus()).isTrue();
+            assertThat(user.isEmailVerified()).isTrue();
+        });
     }
 
     @Test
-    @DisplayName("run upgrades existing user to ADMIN and updates password when configured")
-    void runUpgradesExistingUserToAdminAndUpdatesPasswordWhenConfigured() throws Exception {
+    @DisplayName("run upgrades existing admin and updates password when configured")
+    void runUpgradesExistingAdminAndUpdatesPasswordWhenConfigured() throws Exception {
         when(properties.isEnabled()).thenReturn(true);
         when(properties.getEmail()).thenReturn("existing@example.com");
         when(properties.getPassword()).thenReturn("new-password");
@@ -90,19 +117,30 @@ class AuthBootstrapAdminInitializerTest {
         existing.setEmailVerified(false);
         existing.setPassword("old-password");
 
-        when(userRepository.findByEmailIgnoreCase("existing@example.com")).thenReturn(Optional.of(existing));
-        when(passwordEncoder.encode("new-password")).thenReturn("encoded-new-password");
+        Map<String, Optional<User>> usersByEmail = new HashMap<>();
+        usersByEmail.put("existing@example.com", Optional.of(existing));
+        usersByEmail.put("contributor@exam-bank.local", Optional.empty());
+        usersByEmail.put("audit@exam-bank.local", Optional.empty());
+        usersByEmail.put("system-admin@exam-bank.local", Optional.empty());
+        usersByEmail.put("user@exam-bank.local", Optional.empty());
+
+        when(userRepository.findByEmailIgnoreCase(anyString()))
+                .thenAnswer(invocation -> usersByEmail.getOrDefault(invocation.getArgument(0), Optional.empty()));
+        when(passwordEncoder.encode(anyString())).thenAnswer(invocation -> "encoded:" + invocation.getArgument(0));
 
         initializer.run(null);
 
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
-        verify(userRepository).save(captor.capture());
-        User saved = captor.getValue();
+        verify(userRepository, times(5)).save(captor.capture());
+        User saved = captor.getAllValues().stream()
+                .filter(user -> "existing@example.com".equals(user.getEmail()))
+                .findFirst()
+                .orElseThrow();
 
         assertThat(saved.getId()).isEqualTo(10L);
         assertThat(saved.getRole()).isEqualTo(Role.ADMIN);
         assertThat(saved.isStatus()).isTrue();
         assertThat(saved.isEmailVerified()).isTrue();
-        assertThat(saved.getPassword()).isEqualTo("encoded-new-password");
+        assertThat(saved.getPassword()).isEqualTo("encoded:new-password");
     }
 }

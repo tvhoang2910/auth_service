@@ -1,6 +1,7 @@
 package com.exam_bank.auth_service.service;
 
 import com.exam_bank.auth_service.dto.internal.InternalUserDisplayNameResponse;
+import com.exam_bank.auth_service.dto.internal.InternalUserProfileResponse;
 import com.exam_bank.auth_service.dto.internal.InternalUserPremiumStatusResponse;
 import com.exam_bank.auth_service.entity.SubscriptionStatus;
 import com.exam_bank.auth_service.entity.User;
@@ -28,6 +29,7 @@ public class InternalUserLookupService {
 
     private final UserRepository userRepository;
     private final UserSubscriptionRepository userSubscriptionRepository;
+    private final AvatarStorageService avatarStorageService;
 
     public Optional<InternalUserDisplayNameResponse> findDisplayNameByUserId(Long userId) {
         if (userId == null || userId <= 0) {
@@ -61,6 +63,34 @@ public class InternalUserLookupService {
                 .toList();
 
         log.debug("Resolved {} user display names out of {} requested ids", responses.size(), normalizedIds.size());
+        return responses;
+    }
+
+    public List<InternalUserProfileResponse> findProfilesByUserIds(Collection<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return List.of();
+        }
+
+        Set<Long> normalizedIds = userIds.stream()
+                .filter(id -> id != null && id > 0)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (normalizedIds.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, User> usersById = userRepository.findAllById(normalizedIds).stream()
+                .collect(Collectors.toMap(User::getId, user -> user, (left, right) -> left));
+
+        List<InternalUserProfileResponse> responses = normalizedIds.stream()
+                .map(usersById::get)
+                .filter(user -> user != null && hasText(user.getFullName()))
+                .map(user -> new InternalUserProfileResponse(
+                        user.getId(),
+                        user.getFullName(),
+                        avatarStorageService.toPublicAvatarUrl(user.getId(), user.getAvatarUrl())))
+                .toList();
+
+        log.debug("Resolved {} user profiles out of {} requested ids", responses.size(), normalizedIds.size());
         return responses;
     }
 

@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -42,6 +43,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @AutoConfigureTestRestTemplate
 @DisplayName("AdminUserController Integration Tests")
 class AdminUserControllerIntegrationTest {
+
+    private static final ParameterizedTypeReference<Map<String, Object>> MAP_OBJECT_TYPE = new ParameterizedTypeReference<>() {
+    };
 
     @Autowired
     private TestRestTemplate restTemplate;
@@ -155,8 +159,8 @@ class AdminUserControllerIntegrationTest {
     @DisplayName("getAllUsers_asRegularUser_shouldReturn403")
     void getAllUsers_asRegularUser_shouldReturn403() {
         HttpHeaders headers = bearerHeaders(regularUserAccessToken);
-        ResponseEntity<Map> response = restTemplate.exchange(
-                ADMIN_BASE, HttpMethod.GET, new HttpEntity<>(headers), Map.class);
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                ADMIN_BASE, HttpMethod.GET, new HttpEntity<>(headers), MAP_OBJECT_TYPE);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
@@ -164,7 +168,8 @@ class AdminUserControllerIntegrationTest {
     @Test
     @DisplayName("getAllUsers_unauthenticated_shouldReturn401")
     void getAllUsers_unauthenticated_shouldReturn401() {
-        ResponseEntity<Map> response = restTemplate.getForEntity(ADMIN_BASE, Map.class);
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                ADMIN_BASE, HttpMethod.GET, HttpEntity.EMPTY, MAP_OBJECT_TYPE);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
@@ -177,7 +182,7 @@ class AdminUserControllerIntegrationTest {
         createdUserEmails.add(newEmail);
 
         AdminCreateUserRequest createRequest = new AdminCreateUserRequest(
-                newEmail, "Created By Admin", "CreatedPass@123", Role.USER);
+                newEmail, "Created By Admin", Role.USER);
 
         HttpHeaders headers = bearerJsonHeaders(adminAccessToken);
         ResponseEntity<AdminUserItemResponse> response = restTemplate.exchange(

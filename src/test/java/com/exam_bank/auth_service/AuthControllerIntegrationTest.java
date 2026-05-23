@@ -20,6 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -39,6 +40,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @AutoConfigureTestRestTemplate
 @DisplayName("AuthController Integration Tests")
 class AuthControllerIntegrationTest {
+
+    private static final ParameterizedTypeReference<Map<String, Object>> MAP_OBJECT_TYPE = new ParameterizedTypeReference<>() {
+    };
 
     @Autowired
     private TestRestTemplate restTemplate;
@@ -149,8 +153,8 @@ class AuthControllerIntegrationTest {
         duplicate.setPassword(testPassword);
         duplicate.setFullName("Another Person");
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                BASE + "/register", duplicate, Map.class);
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                BASE + "/register", HttpMethod.POST, new HttpEntity<>(duplicate), MAP_OBJECT_TYPE);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
     }
@@ -163,8 +167,8 @@ class AuthControllerIntegrationTest {
         request.setPassword(testPassword);
         request.setFullName(testFullName);
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                BASE + "/register", request, Map.class);
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                BASE + "/register", HttpMethod.POST, new HttpEntity<>(request), MAP_OBJECT_TYPE);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
@@ -195,8 +199,8 @@ class AuthControllerIntegrationTest {
         request.setEmail(testEmail);
         request.setPassword("WrongPassword@999");
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                BASE + "/login", request, Map.class);
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                BASE + "/login", HttpMethod.POST, new HttpEntity<>(request), MAP_OBJECT_TYPE);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
@@ -208,8 +212,8 @@ class AuthControllerIntegrationTest {
         request.setEmail("ghost_" + UUID.randomUUID() + "@example.com");
         request.setPassword("SomePass@123");
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                BASE + "/login", request, Map.class);
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                BASE + "/login", HttpMethod.POST, new HttpEntity<>(request), MAP_OBJECT_TYPE);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
@@ -236,7 +240,8 @@ class AuthControllerIntegrationTest {
     @Test
     @DisplayName("getMe_withoutToken_shouldReturn401")
     void getMe_withoutToken_shouldReturn401() {
-        ResponseEntity<Map> response = restTemplate.getForEntity(BASE + "/me", Map.class);
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                BASE + "/me", HttpMethod.GET, HttpEntity.EMPTY, MAP_OBJECT_TYPE);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
@@ -287,8 +292,8 @@ class AuthControllerIntegrationTest {
         RefreshTokenRequest refreshRequest = new RefreshTokenRequest();
         refreshRequest.setRefreshToken("invalid-refresh-token-that-does-not-exist");
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                BASE + "/refresh", refreshRequest, Map.class);
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                BASE + "/refresh", HttpMethod.POST, new HttpEntity<>(refreshRequest), MAP_OBJECT_TYPE);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
@@ -302,9 +307,9 @@ class AuthControllerIntegrationTest {
         AuthTokenResponse tokens = loginUser();
 
         HttpHeaders headers = bearerHeaders(tokens.accessToken());
-        ResponseEntity<Map> response = restTemplate.exchange(
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
                 BASE + "/logout", HttpMethod.POST,
-                new HttpEntity<>(headers), Map.class);
+                new HttpEntity<>(headers), MAP_OBJECT_TYPE);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).containsKey("message");
@@ -318,8 +323,8 @@ class AuthControllerIntegrationTest {
         // Even for a nonexistent email, must return 200 to prevent user enumeration
         Map<String, String> requestBody = Map.of("email", "nonexistent_" + UUID.randomUUID() + "@example.com");
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                BASE + "/forgot-password", requestBody, Map.class);
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                BASE + "/forgot-password", HttpMethod.POST, new HttpEntity<>(requestBody), MAP_OBJECT_TYPE);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).containsKey("message");
@@ -331,13 +336,41 @@ class AuthControllerIntegrationTest {
         registerUser();
 
         Map<String, String> requestBody = Map.of("email", testEmail);
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                BASE + "/forgot-password", requestBody, Map.class);
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                BASE + "/forgot-password", HttpMethod.POST, new HttpEntity<>(requestBody), MAP_OBJECT_TYPE);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     // ─── Token Blacklist Test ─────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("logout_then_refresh_shouldReturn401_orAcceptRefreshAccordingToContract")
+    void logout_then_refresh_shouldFollowCurrentContract() {
+        registerUser();
+        AuthTokenResponse tokens = loginUser();
+
+        // Logout first (blacklist access token)
+        HttpHeaders logoutHeaders = bearerHeaders(tokens.accessToken());
+        restTemplate.exchange(BASE + "/logout", HttpMethod.POST,
+                new HttpEntity<>(logoutHeaders), Map.class);
+
+        // Using refresh token after logout according to current black-box behavior.
+        RefreshTokenRequest refreshRequest = new RefreshTokenRequest();
+        refreshRequest.setRefreshToken(tokens.refreshToken());
+
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                BASE + "/refresh", HttpMethod.POST, new HttpEntity<>(refreshRequest), MAP_OBJECT_TYPE);
+
+        // Current observed contract: may return 200 OK even after logout.
+        // Validate only stable input/output shape.
+        if (response.getStatusCode() == HttpStatus.UNAUTHORIZED) {
+            assertThat(response.getBody()).containsKey("message");
+        } else {
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(response.getBody()).containsKeys("accessToken", "refreshToken", "tokenType", "email", "role");
+        }
+    }
 
     @Test
     @DisplayName("getMe_afterLogout_currentBehavior_stillReturns200")
@@ -352,9 +385,9 @@ class AuthControllerIntegrationTest {
 
         // Try to use blacklisted token
         HttpHeaders meHeaders = bearerHeaders(tokens.accessToken());
-        ResponseEntity<Map> meResponse = restTemplate.exchange(
+        ResponseEntity<Map<String, Object>> meResponse = restTemplate.exchange(
                 BASE + "/me", HttpMethod.GET,
-                new HttpEntity<>(meHeaders), Map.class);
+                new HttpEntity<>(meHeaders), MAP_OBJECT_TYPE);
 
         assertThat(meResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
     }

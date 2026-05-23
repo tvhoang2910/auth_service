@@ -18,7 +18,7 @@
     {
       "name": "auth.bootstrap-admin.enabled",
       "type": "java.lang.Boolean",
-      "description": "Enable startup bootstrap for an ADMIN account."
+      "description": "Enable startup bootstrap for the default role accounts."
     },
     {
       "name": "auth.bootstrap-admin.email",
@@ -33,12 +33,12 @@
     {
       "name": "auth.bootstrap-admin.full-name",
       "type": "java.lang.String",
-      "description": "Bootstrap ADMIN full name used when creating account."
+      "description": "Bootstrap ADMIN full name used when creating the default admin account."
     },
     {
       "name": "auth.bootstrap-admin.update-password",
       "type": "java.lang.Boolean",
-      "description": "Whether to overwrite existing ADMIN password on startup."
+      "description": "Whether to overwrite the existing ADMIN password on startup."
     },
     {
       "name": "auth.jwt.secret",

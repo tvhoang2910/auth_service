@@ -15,7 +15,7 @@ import java.util.Locale;
 @Slf4j
 public class SecurityAuditSchemaRepair {
 
-    private static final String REPAIR_SQL = """
+    private static final String SECURITY_AUDIT_REPAIR_SQL = """
             DO $$
             BEGIN
               IF EXISTS (
@@ -100,6 +100,31 @@ public class SecurityAuditSchemaRepair {
             END $$;
             """;
 
+    private static final String USER_ROLE_REPAIR_SQL = """
+            DO $$
+            BEGIN
+              IF EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_name = 'users'
+              ) AND EXISTS (
+                SELECT 1
+                FROM information_schema.table_constraints
+                WHERE table_schema = 'public'
+                  AND table_name = 'users'
+                  AND constraint_name = 'users_role_check'
+              ) THEN
+                ALTER TABLE public.users
+                  DROP CONSTRAINT users_role_check;
+
+                ALTER TABLE public.users
+                  ADD CONSTRAINT users_role_check
+                  CHECK (role IN ('USER', 'CONTRIBUTOR', 'ADMIN', 'AUDIT', 'SYSTEM_ADMIN'));
+              END IF;
+            END $$;
+            """;
+
     private final DataSource dataSource;
     private final JdbcTemplate jdbcTemplate;
 
@@ -110,7 +135,8 @@ public class SecurityAuditSchemaRepair {
         }
 
         try {
-            jdbcTemplate.execute(REPAIR_SQL);
+            jdbcTemplate.execute(SECURITY_AUDIT_REPAIR_SQL);
+            jdbcTemplate.execute(USER_ROLE_REPAIR_SQL);
             log.info("Security audit schema repair check completed");
         } catch (Exception ex) {
             log.warn("Security audit schema repair skipped: {}", ex.getMessage());

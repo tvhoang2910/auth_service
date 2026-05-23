@@ -312,7 +312,7 @@ public class SubscriptionRequestService {
                 SubscriptionApprovalAudit audit = new SubscriptionApprovalAudit();
                 audit.setSubscription(savedSubscription);
                 audit.setReviewer(reviewer);
-                audit.setReviewerRole(reviewer.getRole());
+                audit.setReviewerRole(normalizeReviewerRole(reviewer.getRole()));
                 audit.setDecision(approved ? SubscriptionReviewDecision.APPROVED : SubscriptionReviewDecision.REJECTED);
                 audit.setPreviousStatus(previousStatus);
                 audit.setNewStatus(newStatus);
@@ -362,7 +362,6 @@ public class SubscriptionRequestService {
                                 && subscription.getUser().getId() != null
                                 && subscription.getUser().getId().equals(actor.getId());
                 boolean isReviewer = actor.getRole() == Role.ADMIN
-                                || actor.getRole() == Role.CONTRIBUTOR
                                 || actor.getRole() == Role.AUDIT;
 
                 if (!isOwner && !isReviewer) {
@@ -372,7 +371,7 @@ public class SubscriptionRequestService {
                                         subscriptionId,
                                         subscription.getUser() == null ? null : subscription.getUser().getId());
                         throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                                        "Only owner, ADMIN, CONTRIBUTOR, or AUDIT can view this bill");
+                                        "Only owner, ADMIN, or AUDIT can view this bill");
                 }
 
                 if (!hasText(subscription.getBillImageUrl())) {
@@ -676,12 +675,11 @@ public class SubscriptionRequestService {
         private User validateReviewerRole(String reviewerEmail) {
                 User reviewer = getUserByEmail(reviewerEmail);
                 if (reviewer.getRole() != Role.ADMIN
-                                && reviewer.getRole() != Role.CONTRIBUTOR
                                 && reviewer.getRole() != Role.AUDIT) {
                         log.warn("Forbidden review access for user {} with role {}", reviewer.getEmail(),
                                         reviewer.getRole());
-                        throw new IllegalArgumentException(
-                                        "Only ADMIN, CONTRIBUTOR, or AUDIT can review payment requests");
+                        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                        "Only ADMIN or AUDIT can review payment requests");
                 }
                 return reviewer;
         }
@@ -1102,5 +1100,18 @@ public class SubscriptionRequestService {
         }
 
         private record RefundOutcome(String policy, BigDecimal refundRate, BigDecimal refundAmount) {
+        }
+
+        // Map reviewer roles to values accepted by the DB check constraint.
+        // Some elevated roles (AUDIT, SYSTEM_ADMIN) are stored as ADMIN in the
+        // audit table to keep compatibility with the existing DB constraint.
+        private Role normalizeReviewerRole(Role role) {
+                if (role == null) {
+                        return Role.USER;
+                }
+                if (role == Role.AUDIT || role == Role.SYSTEM_ADMIN) {
+                        return Role.ADMIN;
+                }
+                return role;
         }
 }

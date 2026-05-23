@@ -26,7 +26,15 @@ public class AdminAlertInAppConsumer {
 
     private static final String TYPE_ACHIEVEMENT_UNLOCKED = "ACHIEVEMENT_UNLOCKED";
     private static final String TYPE_STREAK_QUALIFIED = "STREAK_QUALIFIED";
+    private static final String TYPE_EXAM_UPLOAD_EXTRACTED = "EXAM_UPLOAD_EXTRACTED";
+    private static final String TYPE_EXAM_UPLOAD_EXTRACT_FAILED = "EXAM_UPLOAD_EXTRACT_FAILED";
     private static final String DEFAULT_GAMIFICATION_URL = "/dashboard/gamification";
+    private static final String DEFAULT_UPLOAD_QUEUE_URL = "/admin/upload-queue";
+    private static final Set<String> SUPPORTED_TYPES = Set.of(
+            TYPE_ACHIEVEMENT_UNLOCKED,
+            TYPE_STREAK_QUALIFIED,
+            TYPE_EXAM_UPLOAD_EXTRACTED,
+            TYPE_EXAM_UPLOAD_EXTRACT_FAILED);
 
     private final UserRepository userRepository;
     private final NotificationCenterService notificationCenterService;
@@ -39,7 +47,7 @@ public class AdminAlertInAppConsumer {
         }
 
         String type = normalizeType(message.getType());
-        if (!TYPE_ACHIEVEMENT_UNLOCKED.equals(type) && !TYPE_STREAK_QUALIFIED.equals(type)) {
+        if (!SUPPORTED_TYPES.contains(type)) {
             return;
         }
 
@@ -51,7 +59,7 @@ public class AdminAlertInAppConsumer {
 
         String title = resolveTitle(message, type);
         String body = resolveBody(message, type);
-        String actionUrl = resolveActionUrl(message.getUrl());
+        String actionUrl = resolveActionUrl(message.getUrl(), type);
 
         for (User user : targetUsers) {
             notificationCenterService.createNotification(
@@ -86,6 +94,14 @@ public class AdminAlertInAppConsumer {
             return StringUtils.hasText(message.getTitle()) ? message.getTitle().trim() : "Bạn đã đạt thành tựu mới";
         }
 
+        if (TYPE_EXAM_UPLOAD_EXTRACTED.equals(type)) {
+            return StringUtils.hasText(message.getTitle()) ? message.getTitle().trim() : "Trích xuất đề thi hoàn tất";
+        }
+
+        if (TYPE_EXAM_UPLOAD_EXTRACT_FAILED.equals(type)) {
+            return StringUtils.hasText(message.getTitle()) ? message.getTitle().trim() : "Trích xuất đề thi thất bại";
+        }
+
         return StringUtils.hasText(message.getTitle()) ? message.getTitle().trim() : "Streak của bạn vừa tăng";
     }
 
@@ -97,6 +113,21 @@ public class AdminAlertInAppConsumer {
                         ? "Chúc mừng! Bạn vừa mở khóa: " + names.getFirst()
                         : "Chúc mừng! Bạn vừa mở khóa: " + String.join(", ", names);
             }
+        }
+
+        if (TYPE_EXAM_UPLOAD_EXTRACTED.equals(type) || TYPE_EXAM_UPLOAD_EXTRACT_FAILED.equals(type)) {
+            if (StringUtils.hasText(message.getBody())) {
+                return message.getBody().trim();
+            }
+            String title = extractTitle(message.getMetadata());
+            if (TYPE_EXAM_UPLOAD_EXTRACTED.equals(type)) {
+                return title == null
+                        ? "Đề thi đã trích xuất xong. Bạn có thể mở để kiểm tra."
+                        : "Đề \"" + title + "\" đã trích xuất xong. Bạn có thể mở để kiểm tra.";
+            }
+            return title == null
+                    ? "Đề thi trích xuất thất bại. Vui lòng kiểm tra lại hàng đợi."
+                    : "Đề \"" + title + "\" trích xuất thất bại. Vui lòng kiểm tra lại hàng đợi.";
         }
 
         if (TYPE_STREAK_QUALIFIED.equals(type)) {
@@ -123,13 +154,28 @@ public class AdminAlertInAppConsumer {
                 : "Bạn vừa hoàn thành mục tiêu học hôm nay. Tiếp tục giữ nhịp nhé!";
     }
 
-    private String resolveActionUrl(String rawUrl) {
+    private String resolveActionUrl(String rawUrl, String type) {
         if (!StringUtils.hasText(rawUrl)) {
+            if (TYPE_EXAM_UPLOAD_EXTRACTED.equals(type) || TYPE_EXAM_UPLOAD_EXTRACT_FAILED.equals(type)) {
+                return DEFAULT_UPLOAD_QUEUE_URL;
+            }
             return DEFAULT_GAMIFICATION_URL;
         }
 
         String normalized = rawUrl.trim();
         return "/gamification".equals(normalized) ? DEFAULT_GAMIFICATION_URL : normalized;
+    }
+
+    private String extractTitle(Map<String, Object> metadata) {
+        if (metadata == null || metadata.isEmpty()) {
+            return null;
+        }
+        Object raw = metadata.get("title");
+        if (raw == null) {
+            return null;
+        }
+        String text = String.valueOf(raw).trim();
+        return StringUtils.hasText(text) ? text : null;
     }
 
     private String normalizeType(String rawType) {

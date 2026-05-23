@@ -1,6 +1,7 @@
 package com.exam_bank.auth_service.service;
 
 import com.exam_bank.auth_service.dto.internal.InternalUserDisplayNameResponse;
+import com.exam_bank.auth_service.dto.internal.InternalUserProfileResponse;
 import com.exam_bank.auth_service.dto.internal.InternalUserPremiumStatusResponse;
 import com.exam_bank.auth_service.entity.User;
 import com.exam_bank.auth_service.entity.SubscriptionStatus;
@@ -31,6 +32,9 @@ class InternalUserLookupServiceTest {
 
     @Mock
     private UserSubscriptionRepository userSubscriptionRepository;
+
+    @Mock
+    private AvatarStorageService avatarStorageService;
 
     @InjectMocks
     private InternalUserLookupService internalUserLookupService;
@@ -72,6 +76,37 @@ class InternalUserLookupServiceTest {
         assertThat(result)
                 .extracting(InternalUserDisplayNameResponse::fullName)
                 .containsExactly("Teacher One", "Student Two");
+    }
+
+    @Test
+    @DisplayName("findProfilesByUserIds returns ordered profiles with public avatar urls")
+    void findProfilesByUserIdsReturnsProfiles() {
+        User firstUser = new User();
+        firstUser.setId(11L);
+        firstUser.setFullName("Student Two");
+
+        User secondUser = new User();
+        secondUser.setId(5L);
+        secondUser.setFullName("Teacher One");
+        secondUser.setAvatarUrl("avatars/user-5/avatar.png");
+
+        when(userRepository.findAllById(any())).thenReturn(List.of(firstUser, secondUser));
+        when(avatarStorageService.toPublicAvatarUrl(5L, "avatars/user-5/avatar.png"))
+                .thenReturn("/api/v1/auth/users/5/avatar");
+        when(avatarStorageService.toPublicAvatarUrl(11L, null)).thenReturn(null);
+
+        List<InternalUserProfileResponse> result = internalUserLookupService.findProfilesByUserIds(
+                Arrays.asList(5L, null, 11L, 0L, 11L));
+
+        assertThat(result)
+                .extracting(InternalUserProfileResponse::userId)
+                .containsExactly(5L, 11L);
+        assertThat(result)
+                .extracting(InternalUserProfileResponse::fullName)
+                .containsExactly("Teacher One", "Student Two");
+        assertThat(result)
+                .extracting(InternalUserProfileResponse::avatarUrl)
+                .containsExactly("/api/v1/auth/users/5/avatar", null);
     }
 
     @Test
