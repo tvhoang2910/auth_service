@@ -44,6 +44,7 @@ import com.exam_bank.auth_service.entity.SubscriptionReviewDecision;
 import com.exam_bank.auth_service.entity.SubscriptionStatus;
 import com.exam_bank.auth_service.entity.User;
 import com.exam_bank.auth_service.entity.UserSubscription;
+import com.exam_bank.auth_service.exception.ConflictException;
 import com.exam_bank.auth_service.exception.StorageUnavailableException;
 import com.exam_bank.auth_service.repository.PremiumPlanRepository;
 import com.exam_bank.auth_service.repository.SubscriptionApprovalAuditRepository;
@@ -254,7 +255,7 @@ public class SubscriptionRequestService {
                         String reviewerEmail,
                         SubscriptionStatus status,
                         Pageable pageable) {
-                User reviewer = validateReviewerRole(reviewerEmail);
+                User reviewer = validateReviewViewerRole(reviewerEmail);
                 Page<UserSubscriptionQueueItemResponse> queue = userSubscriptionRepository
                                 .findByStatusOrderByCreatedAtAsc(status, pageable)
                                 .map(this::mapSubscription);
@@ -272,7 +273,7 @@ public class SubscriptionRequestService {
                         Long subscriptionId,
                         String reviewerEmail,
                         ReviewSubscriptionRequest request) {
-                User reviewer = validateReviewerRole(reviewerEmail);
+                User reviewer = validateSubscriptionReviewerRole(reviewerEmail);
                 log.info("Reviewer {} reviewing subscriptionId={} approved={}",
                                 reviewer.getEmail(),
                                 subscriptionId,
@@ -334,7 +335,7 @@ public class SubscriptionRequestService {
 
         @Transactional(readOnly = true)
         public List<SubscriptionApprovalAuditResponse> getApprovalAudits(Long subscriptionId, String reviewerEmail) {
-                User reviewer = validateReviewerRole(reviewerEmail);
+                User reviewer = validateReviewViewerRole(reviewerEmail);
                 UserSubscription subscription = userSubscriptionRepository.findById(subscriptionId)
                                 .orElseThrow(() -> new IllegalArgumentException("Subscription request not found"));
 
@@ -394,7 +395,7 @@ public class SubscriptionRequestService {
                         Instant fromDate,
                         Instant toDate,
                         Pageable pageable) {
-                User actor = validateAdminPlanManagerRole(actorEmail);
+                User actor = validateReviewViewerRole(actorEmail);
                 String normalizedSearch = normalizeOptionalText(search);
 
                 if (fromDate != null && toDate != null && fromDate.isAfter(toDate)) {
@@ -447,7 +448,7 @@ public class SubscriptionRequestService {
                         Long subscriptionId,
                         String actorEmail,
                         CancelSubscriptionRequest request) {
-                User actor = validateAdminPlanManagerRole(actorEmail);
+                User actor = validateSubscriptionCancellationRole(actorEmail);
                 String reason = normalizeOptionalText(request.reason());
 
                 if (!hasText(reason)) {
@@ -672,7 +673,7 @@ public class SubscriptionRequestService {
                                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         }
 
-        private User validateReviewerRole(String reviewerEmail) {
+        private User validateReviewViewerRole(String reviewerEmail) {
                 User reviewer = getUserByEmail(reviewerEmail);
                 if (reviewer.getRole() != Role.ADMIN
                                 && reviewer.getRole() != Role.AUDIT) {
@@ -684,12 +685,35 @@ public class SubscriptionRequestService {
                 return reviewer;
         }
 
+        private User validateSubscriptionReviewerRole(String reviewerEmail) {
+                User reviewer = getUserByEmail(reviewerEmail);
+                if (reviewer.getRole() != Role.ADMIN
+                                && reviewer.getRole() != Role.AUDIT) {
+                        log.warn("Forbidden review write access for user {} with role {}", reviewer.getEmail(),
+                                        reviewer.getRole());
+                        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                        "Only ADMIN or AUDIT can approve or reject payment requests");
+                }
+                return reviewer;
+        }
+
         private User validateAdminPlanManagerRole(String actorEmail) {
                 User actor = getUserByEmail(actorEmail);
                 if (actor.getRole() != Role.ADMIN) {
                         log.warn("Forbidden plan-management access for user {} with role {}", actor.getEmail(),
                                         actor.getRole());
                         throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only ADMIN can manage premium plans");
+                }
+                return actor;
+        }
+
+        private User validateSubscriptionCancellationRole(String actorEmail) {
+                User actor = getUserByEmail(actorEmail);
+                if (actor.getRole() != Role.ADMIN) {
+                        log.warn("Forbidden subscription-cancellation access for user {} with role {}", actor.getEmail(),
+                                        actor.getRole());
+                        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                        "Only ADMIN can cancel premium subscriptions");
                 }
                 return actor;
         }
@@ -860,7 +884,7 @@ public class SubscriptionRequestService {
                         log.warn("Duplicate subscription request blocked for user={} requestedPlanId={} reason=PENDING_REVIEW_EXISTS",
                                         user.getEmail(),
                                         requestedPlanId);
-                        throw new IllegalArgumentException("You already have a pending Premium request");
+                        throw new ConflictException("You already have a pending Premium request");
                 }
 
                 Instant now = Instant.now();
@@ -874,7 +898,7 @@ public class SubscriptionRequestService {
                         log.warn("Duplicate subscription request blocked for user={} requestedPlanId={} reason=ACTIVE_PREMIUM_EXISTS",
                                         user.getEmail(),
                                         requestedPlanId);
-                        throw new IllegalArgumentException("You already have an active Premium subscription");
+                        throw new ConflictException("You already have an active Premium subscription");
                 }
         }
 
@@ -893,9 +917,9 @@ public class SubscriptionRequestService {
 
         @Transactional
         private void publishReviewRequestedMessage(UserSubscription subscription) {
-                List<User> reviewers = userRepository.findByRoleInAndStatusTrue(List.of(Role.AUDIT));
+                List<User> reviewers = userRepository.findByRoleInAndStatusTrue(List.of(Role.ADMIN));
                 if (reviewers.isEmpty()) {
-                        log.warn("No active AUDIT reviewers found for subscription {}",
+                        log.warn("No active ADMIN reviewers found for subscription {}",
                                         subscription.getId());
                         return;
                 }

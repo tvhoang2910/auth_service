@@ -6,7 +6,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 public record AdminCreateUserRequest(
-                @Email @NotBlank @Size(max = 255) String email,
-                @NotBlank @Size(max = 150) String fullName,
-                Role role) {
+        @Email @NotBlank @Size(max = 255) String email,
+        @NotBlank @Size(max = 150) String fullName,
+        @Size(max = 72) String password,
+        Role role) {
 }

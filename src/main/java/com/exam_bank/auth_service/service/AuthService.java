@@ -99,7 +99,8 @@ public class AuthService {
         user.setEmail(normalizedEmail);
         user.setPassword(hasText(request.getPassword()) ? passwordEncoder.encode(request.getPassword()) : null);
         user.setFullName(request.getFullName().trim());
-        user.setRole(request.getRole() == null ? Role.USER : request.getRole());
+        // Public registration must never allow callers to self-assign privileged roles.
+        user.setRole(Role.USER);
         user.setEmailVerified(false);
         user.setAvatarUrl(null);
         user.setPhoneNumber(null);

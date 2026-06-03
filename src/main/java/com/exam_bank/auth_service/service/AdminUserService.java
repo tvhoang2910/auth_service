@@ -117,11 +117,11 @@ public class AdminUserService {
             throw new ConflictException("Email already exists");
         }
 
-        String temporaryPassword = generateTemporaryPassword();
+        String rawPassword = hasText(request.password()) ? request.password().trim() : generateTemporaryPassword();
         User user = new User();
         user.setEmail(normalizedEmail);
         user.setFullName(request.fullName().trim());
-        user.setPassword(passwordEncoder.encode(temporaryPassword));
+        user.setPassword(passwordEncoder.encode(rawPassword));
         user.setRole(request.role() == null ? Role.CONTRIBUTOR : request.role());
         user.setStatus(true);
         user.setEmailVerified(true);
@@ -131,7 +131,11 @@ public class AdminUserService {
         user.setSubject(null);
 
         User savedUser = userRepository.save(user);
-        publishTemporaryPasswordEmail(savedUser.getEmail(), temporaryPassword);
+        if (hasText(request.password())) {
+            log.info("Created admin user with provided password for {}", savedUser.getEmail());
+        } else {
+            publishTemporaryPasswordEmail(savedUser.getEmail(), rawPassword);
+        }
         authUserProfileEventPublisher.publish(savedUser, isPremiumActive(savedUser.getId()));
         return mapToResponse(savedUser);
     }

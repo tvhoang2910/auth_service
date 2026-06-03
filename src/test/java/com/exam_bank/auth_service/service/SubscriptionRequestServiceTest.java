@@ -4,6 +4,7 @@ import com.exam_bank.auth_service.config.properties.NotificationRabbitProperties
 import com.exam_bank.auth_service.dto.message.SubscriptionExpiryReminderMessage;
 import com.exam_bank.auth_service.dto.message.SubscriptionReviewedMessage;
 import com.exam_bank.auth_service.dto.request.CancelSubscriptionRequest;
+import com.exam_bank.auth_service.dto.request.ReviewSubscriptionRequest;
 import com.exam_bank.auth_service.dto.response.CancelSubscriptionResponse;
 import com.exam_bank.auth_service.dto.response.SubscriptionAnalyticsOverviewResponse;
 import com.exam_bank.auth_service.dto.response.SubscriptionHistoryPageResponse;
@@ -12,6 +13,7 @@ import com.exam_bank.auth_service.entity.Role;
 import com.exam_bank.auth_service.entity.SubscriptionStatus;
 import com.exam_bank.auth_service.entity.User;
 import com.exam_bank.auth_service.entity.UserSubscription;
+import com.exam_bank.auth_service.exception.ConflictException;
 import com.exam_bank.auth_service.repository.PlanSubscriptionCountProjection;
 import com.exam_bank.auth_service.repository.PremiumPlanRepository;
 import com.exam_bank.auth_service.repository.SubscriptionApprovalAuditRepository;
@@ -28,6 +30,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -106,7 +109,7 @@ class SubscriptionRequestServiceTest {
                                 null,
                                 false,
                                 billFile))
-                                .isInstanceOf(IllegalArgumentException.class)
+                                .isInstanceOf(ConflictException.class)
                                 .hasMessage("You already have a pending Premium request");
 
                 verify(userSubscriptionRepository, never()).save(any(UserSubscription.class));
@@ -140,7 +143,7 @@ class SubscriptionRequestServiceTest {
                                 null,
                                 false,
                                 billFile))
-                                .isInstanceOf(IllegalArgumentException.class)
+                                .isInstanceOf(ConflictException.class)
                                 .hasMessage("You already have an active Premium subscription");
 
                 verify(userSubscriptionRepository, never()).save(any(UserSubscription.class));
@@ -194,6 +197,83 @@ class SubscriptionRequestServiceTest {
                 assertThat(response.content().getFirst().userEmail()).isEqualTo("user@example.com");
                 assertThat(response.content().getFirst().planName()).isEqualTo("Premium 30");
                 assertThat(response.totalElements()).isEqualTo(1L);
+        }
+
+        @Test
+        @DisplayName("getReviewQueue allows AUDIT to view pending premium requests")
+        void getReviewQueueAllowsAuditViewer() {
+                User audit = buildUser(5L, "audit@example.com", "Audit User", Role.AUDIT);
+
+                when(userRepository.findByEmailIgnoreCase("audit@example.com")).thenReturn(Optional.of(audit));
+                when(userSubscriptionRepository.findByStatusOrderByCreatedAtAsc(
+                                eq(SubscriptionStatus.PENDING_REVIEW),
+                                any(PageRequest.class)))
+                                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0));
+
+                assertThat(service.getReviewQueue(
+                                "audit@example.com",
+                                SubscriptionStatus.PENDING_REVIEW,
+                                PageRequest.of(0, 10)).getTotalElements())
+                                .isZero();
+        }
+
+        @Test
+        @DisplayName("reviewRequest allows AUDIT write access")
+        void reviewRequestAllowsAuditWriteAccess() {
+                User audit = buildUser(5L, "audit@example.com", "Audit User", Role.AUDIT);
+                User subscriber = buildUser(2L, "user@example.com", "Premium User", Role.USER);
+                PremiumPlan plan = buildPlan(3L, "Premium 30", BigDecimal.valueOf(199000));
+
+                when(userRepository.findByEmailIgnoreCase("audit@example.com")).thenReturn(Optional.of(audit));
+                UserSubscription pendingSubscription = new UserSubscription();
+                pendingSubscription.setId(10L);
+                pendingSubscription.setUser(subscriber);
+                pendingSubscription.setPlan(plan);
+                pendingSubscription.setPurchasedPrice(BigDecimal.valueOf(199000));
+                pendingSubscription.setStatus(SubscriptionStatus.PENDING_REVIEW);
+                when(userSubscriptionRepository.findById(10L)).thenReturn(Optional.of(pendingSubscription));
+                when(userSubscriptionRepository.save(any(UserSubscription.class)))
+                                .thenAnswer(invocation -> invocation.getArgument(0));
+
+                assertThat(service.reviewRequest(
+                                10L,
+                                "audit@example.com",
+                                new ReviewSubscriptionRequest(true, "Looks good")).status())
+                                .isEqualTo(SubscriptionStatus.APPROVED);
+                verify(userSubscriptionRepository).findById(10L);
+                verify(userSubscriptionRepository).save(any(UserSubscription.class));
+        }
+
+        @Test
+        @DisplayName("cancelSubscription rejects AUDIT write access")
+        void cancelSubscriptionRejectsAuditWriteAccess() {
+                User audit = buildUser(5L, "audit@example.com", "Audit User", Role.AUDIT);
+
+                when(userRepository.findByEmailIgnoreCase("audit@example.com")).thenReturn(Optional.of(audit));
+
+                assertThatThrownBy(() -> service.cancelSubscription(
+                                22L,
+                                "audit@example.com",
+                                new CancelSubscriptionRequest("Need cancel")))
+                                .isInstanceOf(ResponseStatusException.class)
+                                .hasMessageContaining("Only ADMIN can cancel premium subscriptions");
+
+                verify(userSubscriptionRepository, never()).findById(any());
+                verify(userSubscriptionRepository, never()).save(any(UserSubscription.class));
+        }
+
+        @Test
+        @DisplayName("getPlansForManagement rejects AUDIT access")
+        void getPlansForManagementRejectsAuditAccess() {
+                User audit = buildUser(5L, "audit@example.com", "Audit User", Role.AUDIT);
+
+                when(userRepository.findByEmailIgnoreCase("audit@example.com")).thenReturn(Optional.of(audit));
+
+                assertThatThrownBy(() -> service.getPlansForManagement("audit@example.com", null, null))
+                                .isInstanceOf(ResponseStatusException.class)
+                                .hasMessageContaining("Only ADMIN can manage premium plans");
+
+                verify(premiumPlanRepository, never()).findAllByOrderByCreatedAtDesc();
         }
 
         @Test

@@ -111,9 +111,12 @@ class AdminUserControllerIntegrationTest {
         request.setRole(role);
         restTemplate.postForEntity(BASE + "/register", request, Map.class);
 
-        // Directly set emailVerified
+        // Public register always creates USER; tests can elevate role directly in DB.
         userRepository.findByEmailIgnoreCase(email).ifPresent(user -> {
             user.setEmailVerified(true);
+            if (role != null) {
+                user.setRole(role);
+            }
             userRepository.save(user);
         });
     }
@@ -182,7 +185,7 @@ class AdminUserControllerIntegrationTest {
         createdUserEmails.add(newEmail);
 
         AdminCreateUserRequest createRequest = new AdminCreateUserRequest(
-                newEmail, "Created By Admin", Role.USER);
+                newEmail, "Created By Admin", "CreatedPass@123", Role.USER);
 
         HttpHeaders headers = bearerJsonHeaders(adminAccessToken);
         ResponseEntity<AdminUserItemResponse> response = restTemplate.exchange(

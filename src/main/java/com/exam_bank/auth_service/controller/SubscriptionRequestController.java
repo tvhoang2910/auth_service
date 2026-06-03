@@ -130,7 +130,7 @@ public class SubscriptionRequestController {
     }
 
     @PostMapping(value = "/purchase-requests", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-        @PreAuthorize("hasAnyRole('USER','CONTRIBUTOR','ADMIN','AUDIT')")
+    @PreAuthorize("hasAnyRole('USER','CONTRIBUTOR','ADMIN')")
     public ResponseEntity<UserSubscriptionQueueItemResponse> createPurchaseRequest(
             Authentication authentication,
             @RequestParam Long planId,
@@ -165,7 +165,7 @@ public class SubscriptionRequestController {
     }
 
     @GetMapping("/history")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','AUDIT')")
     public ResponseEntity<SubscriptionHistoryPageResponse> getSubscriptionHistory(
             Authentication authentication,
             @RequestParam(required = false) String search,
@@ -225,6 +225,7 @@ public class SubscriptionRequestController {
     }
 
     @GetMapping("/review-queue")
+    @PreAuthorize("hasAnyRole('ADMIN','AUDIT')")
     public ResponseEntity<SubscriptionQueuePageResponse> getReviewQueue(
             Authentication authentication,
             @RequestParam(defaultValue = "PENDING_REVIEW") SubscriptionStatus status,
@@ -251,6 +252,7 @@ public class SubscriptionRequestController {
     }
 
     @PatchMapping("/purchase-requests/{subscriptionId}/review")
+    @PreAuthorize("hasAnyRole('ADMIN','AUDIT')")
     public ResponseEntity<UserSubscriptionQueueItemResponse> reviewRequest(
             @PathVariable Long subscriptionId,
             Authentication authentication,
@@ -267,6 +269,7 @@ public class SubscriptionRequestController {
     }
 
     @GetMapping("/purchase-requests/{subscriptionId}/approvals")
+    @PreAuthorize("hasAnyRole('ADMIN','AUDIT')")
     public ResponseEntity<List<SubscriptionApprovalAuditResponse>> getApprovals(
             @PathVariable Long subscriptionId,
             Authentication authentication) {

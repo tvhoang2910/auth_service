@@ -1,6 +1,5 @@
 package com.exam_bank.auth_service.audit.service;
 
-import com.exam_bank.auth_service.dto.request.ReviewSubscriptionRequest;
 import com.exam_bank.auth_service.dto.response.SubscriptionApprovalAuditResponse;
 import com.exam_bank.auth_service.dto.response.UserSubscriptionQueueItemResponse;
 import com.exam_bank.auth_service.entity.SubscriptionStatus;
@@ -24,20 +23,6 @@ public class AuditVipApprovalService {
     public Page<UserSubscriptionQueueItemResponse> getVipReviewQueue(SubscriptionStatus status, Pageable pageable, String reviewerEmail) {
         SubscriptionStatus safeStatus = status == null ? SubscriptionStatus.PENDING_REVIEW : status;
         return subscriptionRequestService.getReviewQueue(reviewerEmail, safeStatus, pageable);
-    }
-
-    public UserSubscriptionQueueItemResponse approve(Long subscriptionId, String reviewerEmail, String reviewNote) {
-        return subscriptionRequestService.reviewRequest(
-                subscriptionId,
-                reviewerEmail,
-                new ReviewSubscriptionRequest(true, reviewNote));
-    }
-
-    public UserSubscriptionQueueItemResponse reject(Long subscriptionId, String reviewerEmail, String reviewNote) {
-        return subscriptionRequestService.reviewRequest(
-                subscriptionId,
-                reviewerEmail,
-                new ReviewSubscriptionRequest(false, reviewNote));
     }
 
     @Transactional(readOnly = true)

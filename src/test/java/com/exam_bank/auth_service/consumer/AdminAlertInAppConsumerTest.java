@@ -94,7 +94,7 @@ class AdminAlertInAppConsumerTest {
         @Test
         @DisplayName("handleAdminAlert persists upload extraction notification for reviewer")
         void handleAdminAlertPersistsUploadExtractionNotificationForReviewer() {
-                User user = buildUser(101L, Role.ADMIN, true);
+                User user = buildUser(101L, Role.CONTRIBUTOR, true);
                 when(userRepository.findAllById(anyCollection())).thenReturn(List.of(user));
 
                 AdminAlertMessage message = new AdminAlertMessage(
@@ -115,7 +115,7 @@ class AdminAlertInAppConsumerTest {
                                 eq("EXAM_UPLOAD_EXTRACTED"),
                                 eq("Trích xuất đề thi hoàn tất"),
                                 eq("Đề \"Toán 12\" đã trích xuất xong. Bạn có thể mở để kiểm tra."),
-                                eq("/admin/upload-queue"));
+                                eq("/contributor/upload-queue"));
         }
 
         @Test

@@ -17,7 +17,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -29,7 +28,6 @@ import org.springframework.web.server.ResponseStatusException;
 import com.exam_bank.auth_service.audit.service.AuditPaymentService;
 import com.exam_bank.auth_service.audit.service.AuditVipApprovalService;
 import com.exam_bank.auth_service.audit.service.SubscriptionApprovalAuditLogService;
-import com.exam_bank.auth_service.dto.request.AuditVipDecisionRequest;
 import com.exam_bank.auth_service.dto.request.PaymentFeeCalculationRequest;
 import com.exam_bank.auth_service.dto.response.PaymentFeeCalculationResponse;
 import com.exam_bank.auth_service.dto.response.PaymentStatsResponse;
@@ -65,32 +63,6 @@ public class AuditController {
                 PageRequest.of(page, Math.min(size, 100)),
                 authentication.getName());
         return ResponseEntity.ok(queue);
-    }
-
-    @PatchMapping("/vip/requests/{subscriptionId}/approve")
-    public ResponseEntity<UserSubscriptionQueueItemResponse> approveVip(
-            @PathVariable Long subscriptionId,
-            Authentication authentication,
-            @Valid @RequestBody(required = false) AuditVipDecisionRequest request) {
-        String reviewNote = request == null ? null : request.reviewNote();
-        UserSubscriptionQueueItemResponse response = auditVipApprovalService.approve(
-                subscriptionId,
-                authentication.getName(),
-                reviewNote);
-        return ResponseEntity.ok(response);
-    }
-
-    @PatchMapping("/vip/requests/{subscriptionId}/reject")
-    public ResponseEntity<UserSubscriptionQueueItemResponse> rejectVip(
-            @PathVariable Long subscriptionId,
-            Authentication authentication,
-            @Valid @RequestBody(required = false) AuditVipDecisionRequest request) {
-        String reviewNote = request == null ? null : request.reviewNote();
-        UserSubscriptionQueueItemResponse response = auditVipApprovalService.reject(
-                subscriptionId,
-                authentication.getName(),
-                reviewNote);
-        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/vip/requests/{subscriptionId}/history")

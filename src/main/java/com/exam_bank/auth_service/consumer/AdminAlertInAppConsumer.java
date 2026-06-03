@@ -29,7 +29,7 @@ public class AdminAlertInAppConsumer {
     private static final String TYPE_EXAM_UPLOAD_EXTRACTED = "EXAM_UPLOAD_EXTRACTED";
     private static final String TYPE_EXAM_UPLOAD_EXTRACT_FAILED = "EXAM_UPLOAD_EXTRACT_FAILED";
     private static final String DEFAULT_GAMIFICATION_URL = "/dashboard/gamification";
-    private static final String DEFAULT_UPLOAD_QUEUE_URL = "/admin/upload-queue";
+    private static final String DEFAULT_UPLOAD_QUEUE_URL = "/contributor/upload-queue";
     private static final Set<String> SUPPORTED_TYPES = Set.of(
             TYPE_ACHIEVEMENT_UNLOCKED,
             TYPE_STREAK_QUALIFIED,
